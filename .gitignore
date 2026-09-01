@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+
+# IDE/editor
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Runtime/generated data
+logs/
+captures/
+recordings/
+output/
+tmp/
+
+# Local configuration
+config/local.json
+
+# Backups
+*.bak
+*.backup
+*~
