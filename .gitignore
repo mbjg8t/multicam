@@ -5,7 +5,7 @@ __pycache__/
 .venv/
 venv/
 
-# IDE/editor
+# Editors
 .vscode/
 .idea/
 
@@ -20,10 +20,10 @@ recordings/
 output/
 tmp/
 
-# Local configuration
+# Local machine configuration
 config/local.json
 
-# Backups
+# Development leftovers
 *.bak
 *.backup
 *~
