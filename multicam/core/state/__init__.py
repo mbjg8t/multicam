@@ -1,12 +1,12 @@
 from .view import (
-    OverlayLayer,
+    CameraLayer,
     Transform,
     ViewState,
     ViewStateStore,
 )
 
 __all__ = [
-    "OverlayLayer",
+    "CameraLayer",
     "Transform",
     "ViewState",
     "ViewStateStore",

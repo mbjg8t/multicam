@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from multicam.core.cameras import Frame
-from multicam.core.state import OverlayLayer, ViewState
+from multicam.core.state import CameraLayer, ViewState
 
 
 class Compositor:
@@ -12,50 +12,43 @@ class Compositor:
         frames: dict[str, Frame],
         view_state: ViewState,
     ) -> np.ndarray | None:
-        if not view_state.base_camera_id:
-            return None
-
-        base_frame = frames.get(view_state.base_camera_id)
-
-        if base_frame is None:
-            return None
-
-        output = self._to_display_rgb(base_frame.image)
-
-        base_opacity = max(
-            0.0,
-            min(1.0, view_state.base_opacity),
-        )
-
-        if base_opacity < 1.0:
-            output = (
-                output.astype(np.float32)
-                * base_opacity
-            ).clip(
-                0,
-                255,
-            ).astype(np.uint8)
-
-        overlays = sorted(
-            (
-                layer
-                for layer in view_state.overlays
-                if layer.enabled
-            ),
+        layers = sorted(
+            view_state.layers,
             key=lambda layer: layer.z_order,
         )
 
-        for layer in overlays:
+        # The first available layer establishes the output canvas even if
+        # that layer is disabled. This keeps the output geometry stable when
+        # Layer 1 is temporarily hidden.
+        canvas_frame = next(
+            (
+                frames.get(layer.camera_id)
+                for layer in layers
+                if frames.get(layer.camera_id) is not None
+            ),
+            None,
+        )
+
+        if canvas_frame is None:
+            return None
+
+        canvas_image = self._to_display_rgb(canvas_frame.image)
+        output = np.zeros_like(canvas_image)
+
+        for layer in layers:
+            if not layer.enabled:
+                continue
+
             frame = frames.get(layer.camera_id)
 
             if frame is None:
                 continue
 
-            overlay = self._to_display_rgb(frame.image)
+            image = self._to_display_rgb(frame.image)
 
-            output = self._apply_overlay(
+            output = self._apply_layer(
                 output,
-                overlay,
+                image,
                 layer,
             )
 
@@ -102,14 +95,14 @@ class Compositor:
             f"Unsupported image shape: {image.shape}"
         )
 
-    def _apply_overlay(
+    def _apply_layer(
         self,
         base: np.ndarray,
-        overlay: np.ndarray,
-        layer: OverlayLayer,
+        image: np.ndarray,
+        layer: CameraLayer,
     ) -> np.ndarray:
-        overlay = self._resize_nearest(
-            overlay,
+        image = self._resize_nearest(
+            image,
             base.shape[1],
             base.shape[0],
         )
@@ -118,8 +111,8 @@ class Compositor:
         y_offset = int(round(layer.transform.y))
 
         if x_offset != 0 or y_offset != 0:
-            overlay = self._translate(
-                overlay,
+            image = self._translate(
+                image,
                 x_offset,
                 y_offset,
             )
@@ -133,7 +126,7 @@ class Compositor:
             base.astype(np.float32)
             * (1.0 - opacity)
             +
-            overlay.astype(np.float32)
+            image.astype(np.float32)
             * opacity
         )
 

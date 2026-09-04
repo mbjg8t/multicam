@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import io
 import time
 
@@ -10,8 +12,10 @@ from multicam.backends.aravis import AravisBackend
 from multicam.backends.picamera2 import Picamera2Backend
 from multicam.core.cameras import CameraManager, FrameBroker
 from multicam.core.services import LiveViewService
-from multicam.core.state import OverlayLayer, ViewStateStore
+from multicam.core.state import CameraLayer, ViewStateStore
 
+
+logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
@@ -39,31 +43,21 @@ def initialize():
         device = manager.open(info.id)
         broker.add_camera(device)
 
-    # Temporary startup defaults only.
-    # These will later come from persistent configuration.
-    picam = next(
+    # Temporary startup default only. Until camera role/user metadata is
+    # persisted, Picamera2 is our best available indication of the visible
+    # camera. If none exists, use the first discovered camera.
+    visible = next(
         (c for c in cameras if c.backend == "picamera2"),
-        None,
+        cameras[0],
     )
 
-    swir = next(
-        (c for c in cameras if c.backend == "aravis"),
-        None,
-    )
-
-    if picam is not None:
-        state.set_base(picam.id)
-    else:
-        state.set_base(cameras[0].id)
-
-    if swir is not None:
-        state.add_overlay(
-            OverlayLayer(
-                camera_id=swir.id,
-                opacity=0.50,
-                z_order=0,
-            )
+    state.add_layer(
+        CameraLayer(
+            camera_id=visible.id,
+            opacity=1.0,
+            z_order=0,
         )
+    )
 
     broker.start_all()
 
@@ -72,8 +66,7 @@ def serialize_state():
     current = state.get()
 
     return {
-        "base_camera_id": current.base_camera_id,
-        "overlays": [
+        "layers": [
             {
                 "camera_id": layer.camera_id,
                 "enabled": layer.enabled,
@@ -88,7 +81,7 @@ def serialize_state():
                     "rotation_deg": layer.transform.rotation_deg,
                 },
             }
-            for layer in current.overlays
+            for layer in current.layers
         ],
     }
 
@@ -139,8 +132,13 @@ def index():
             cursor: pointer;
         }
 
-        button:hover {
+        button:hover:not(:disabled) {
             background: #555;
+        }
+
+        button:disabled {
+            opacity: 0.45;
+            cursor: default;
         }
 
         .viewer {
@@ -163,7 +161,6 @@ def index():
 
 <body>
     <div class="container">
-
         <div class="header">
             <div class="title">Multicam 1.0</div>
 
@@ -171,19 +168,13 @@ def index():
                 Cameras
             </button>
 
-            <button disabled>
-                Alignment
-            </button>
-
-            <button disabled>
-                MTF
-            </button>
+            <button disabled>Alignment</button>
+            <button disabled>MTF</button>
         </div>
 
         <div class="viewer">
             <img src="/stream">
         </div>
-
     </div>
 </body>
 </html>
@@ -192,7 +183,7 @@ def index():
 
 @app.route("/cameras")
 def cameras_page():
-    return """
+    return r"""
 <!doctype html>
 <html>
 <head>
@@ -219,15 +210,51 @@ def cameras_page():
             margin-bottom: 18px;
         }
 
+        .layer {
+            border-top: 1px solid #444;
+            padding: 14px 0;
+        }
+
+        .layer:first-child {
+            border-top: none;
+        }
+
+        .layer-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .layer-number {
+            color: #aaa;
+            min-width: 58px;
+        }
+
         .camera-info {
             font-size: 13px;
             color: #aaa;
             margin-top: 6px;
         }
 
+        .stream-ok {
+            color: #8f8;
+        }
+
+        .stream-error {
+            color: #f88;
+        }
+
+        .row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 10px 0 4px 0;
+            flex-wrap: wrap;
+        }
+
         select,
         input[type="range"] {
-            margin-top: 8px;
+            margin-top: 4px;
         }
 
         select {
@@ -247,24 +274,13 @@ def cameras_page():
             cursor: pointer;
         }
 
-        button:hover {
+        button:hover:not(:disabled) {
             background: #555;
         }
 
-        .overlay {
-            border-top: 1px solid #444;
-            padding: 14px 0;
-        }
-
-        .overlay:first-child {
-            border-top: none;
-        }
-
-        .row {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            margin: 8px 0;
+        button:disabled {
+            opacity: 0.45;
+            cursor: default;
         }
 
         .opacity {
@@ -275,14 +291,19 @@ def cameras_page():
             width: 45px;
         }
 
-        .remove {
-            margin-left: auto;
+        .spacer {
+            flex: 1;
         }
 
         .status {
             color: #8f8;
             font-size: 13px;
             min-height: 18px;
+        }
+
+        .empty {
+            color: #aaa;
+            padding: 10px 0;
         }
     </style>
 </head>
@@ -292,34 +313,32 @@ def cameras_page():
 <h2>Cameras</h2>
 
 <div class="section">
-    <strong>Base Camera</strong>
-
-    <div>
-        <select id="baseCamera"></select>
-    </div>
-
-    <div id="baseInfo" class="camera-info"></div>
+    <strong>Camera Layers</strong>
+    <div id="layerList"></div>
 </div>
 
-
 <div class="section">
-    <strong>Overlays</strong>
+    <strong>Add Camera Layer</strong>
 
-    <div id="overlayList"></div>
-
-    <div style="margin-top: 12px;">
-        <button onclick="addOverlay()">
-            + Add Overlay
+    <div class="row">
+        <select id="availableCamera"></select>
+        <button id="addLayerButton" onclick="addLayer()">
+            + Add Camera Layer
         </button>
+    </div>
+
+    <div class="camera-info">
+        The first visible camera is Layer 1 by default. Every layer uses the
+        same enable and opacity controls.
     </div>
 </div>
 
 <div id="status" class="status"></div>
 
-
 <script>
 
 let cameras = [];
+let streams = [];
 let viewState = null;
 
 
@@ -336,16 +355,24 @@ async function api(url, options = {}) {
 
 
 async function refresh() {
-    cameras = await api('/api/cameras');
-    viewState = await api('/api/state');
+    [cameras, streams, viewState] = await Promise.all([
+        api('/api/cameras'),
+        api('/api/streams'),
+        api('/api/state')
+    ]);
 
-    renderBase();
-    renderOverlays();
+    renderLayers();
+    renderAvailableCameras();
 }
 
 
 function cameraById(id) {
     return cameras.find(c => c.id === id);
+}
+
+
+function streamById(id) {
+    return streams.find(s => s.id === id);
 }
 
 
@@ -358,75 +385,75 @@ function cameraLabel(camera) {
 }
 
 
-function renderBase() {
-    const select = document.getElementById('baseCamera');
-
-    select.innerHTML = '';
-
-    for (const camera of cameras) {
-        const option = document.createElement('option');
-
-        option.value = camera.id;
-        option.textContent = cameraLabel(camera);
-
-        if (camera.id === viewState.base_camera_id) {
-            option.selected = true;
-        }
-
-        select.appendChild(option);
+function streamText(stream) {
+    if (!stream) {
+        return 'No stream status';
     }
 
-    select.onchange = async () => {
-        await api('/api/view/base', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                camera_id: select.value
-            })
-        });
+    if (stream.last_error) {
+        return `ERROR: ${stream.last_error}`;
+    }
 
-        await refresh();
+    if (!stream.running) {
+        return 'Stream stopped';
+    }
 
-        showStatus('Base camera changed');
-    };
+    if (!stream.has_frame) {
+        return `Running - waiting for frame (${stream.frame_count} frames)`;
+    }
 
-    const camera = cameraById(viewState.base_camera_id);
+    const details = [
+        `${stream.width}x${stream.height}`,
+        stream.pixel_format,
+        stream.dtype,
+        `${stream.frame_count} frames`
+    ].filter(Boolean);
 
-    document.getElementById('baseInfo').textContent =
-        camera
-            ? `${camera.vendor || ''} ${camera.model || ''}`
-            : '';
+    return `Streaming - ${details.join(' | ')}`;
 }
 
 
-function renderOverlays() {
-    const container = document.getElementById('overlayList');
-
+function renderLayers() {
+    const container = document.getElementById('layerList');
     container.innerHTML = '';
 
-    if (viewState.overlays.length === 0) {
+    if (viewState.layers.length === 0) {
         container.innerHTML =
-            '<div class="camera-info">No overlays</div>';
-
+            '<div class="empty">No camera layers</div>';
         return;
     }
 
-    viewState.overlays.forEach((layer, index) => {
+    const layers = [...viewState.layers].sort(
+        (a, b) => a.z_order - b.z_order
+    );
 
+    layers.forEach((layer, index) => {
         const camera = cameraById(layer.camera_id);
+        const stream = streamById(layer.camera_id);
+        const streamClass =
+            stream && stream.running && !stream.last_error
+                ? 'stream-ok'
+                : 'stream-error';
 
         const div = document.createElement('div');
-        div.className = 'overlay';
+        div.className = 'layer';
 
         div.innerHTML = `
-            <div>
+            <div class="layer-title">
+                <span class="layer-number">Layer ${index + 1}</span>
                 <strong>${cameraLabel(camera)}</strong>
             </div>
 
-            <div class="row">
+            <div class="camera-info">
+                ${camera ? `${camera.vendor || ''} ${camera.model || ''}`.trim() : ''}
+                ${camera && camera.serial ? ` | Serial ${camera.serial}` : ''}
+            </div>
 
+            <div class="camera-info ${streamClass}">
+                ${escapeHtml(streamText(stream))}
+            </div>
+
+            <div class="row">
                 <label>
                     <input
                         type="checkbox"
@@ -462,15 +489,17 @@ function renderOverlays() {
                     ${Math.round(layer.opacity * 100)}%
                 </span>
 
-                <button
-                    class="remove"
-                    onclick="removeOverlay(
-                        '${escapeJs(layer.camera_id)}'
-                    )"
-                >
-                    Remove
+                <span class="spacer"></span>
+
+                <button disabled title="Camera settings are the next step">
+                    Settings
                 </button>
 
+                <button onclick="removeLayer(
+                    '${escapeJs(layer.camera_id)}'
+                )">
+                    Remove
+                </button>
             </div>
         `;
 
@@ -479,63 +508,97 @@ function renderOverlays() {
 }
 
 
-function escapeJs(value) {
-    return value
-        .replace(/\\\\/g, '\\\\\\\\')
-        .replace(/'/g, "\\\\'");
-}
+function renderAvailableCameras() {
+    const select = document.getElementById('availableCamera');
+    const button = document.getElementById('addLayerButton');
 
-
-async function addOverlay() {
     const used = new Set(
-        viewState.overlays.map(o => o.camera_id)
+        viewState.layers.map(layer => layer.camera_id)
     );
 
-    const camera = cameras.find(
-        c =>
-            c.id !== viewState.base_camera_id &&
-            !used.has(c.id)
+    const available = cameras.filter(
+        camera => !used.has(camera.id)
     );
 
-    if (!camera) {
-        alert('No unused camera is available for another overlay.');
+    select.innerHTML = '';
+
+    if (available.length === 0) {
+        const option = document.createElement('option');
+        option.textContent = 'No unused cameras available';
+        option.value = '';
+        select.appendChild(option);
+        select.disabled = true;
+        button.disabled = true;
         return;
     }
 
-    await api('/api/overlays', {
+    select.disabled = false;
+    button.disabled = false;
+
+    for (const camera of available) {
+        const option = document.createElement('option');
+        option.value = camera.id;
+        option.textContent = cameraLabel(camera);
+        select.appendChild(option);
+    }
+}
+
+
+function escapeJs(value) {
+    return value
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'");
+}
+
+
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+
+async function addLayer() {
+    const select = document.getElementById('availableCamera');
+    const cameraId = select.value;
+
+    if (!cameraId) {
+        return;
+    }
+
+    await api('/api/layers', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-            camera_id: camera.id,
+            camera_id: cameraId,
             opacity: 0.5
         })
     });
 
     await refresh();
-
-    showStatus('Overlay added');
+    showStatus('Camera layer added');
 }
 
 
-async function removeOverlay(cameraId) {
+async function removeLayer(cameraId) {
     await api(
-        '/api/overlays/' + encodeURIComponent(cameraId),
-        {
-            method: 'DELETE'
-        }
+        '/api/layers/' + encodeURIComponent(cameraId),
+        {method: 'DELETE'}
     );
 
     await refresh();
-
-    showStatus('Overlay removed');
+    showStatus('Camera layer removed');
 }
 
 
 async function setOpacity(cameraId, value) {
-    await api(
-        '/api/overlays/' + encodeURIComponent(cameraId),
+    viewState = await api(
+        '/api/layers/' + encodeURIComponent(cameraId),
         {
             method: 'PATCH',
             headers: {
@@ -547,15 +610,13 @@ async function setOpacity(cameraId, value) {
         }
     );
 
-    viewState = await api('/api/state');
-
     showStatus('Opacity updated');
 }
 
 
 async function setEnabled(cameraId, enabled) {
-    await api(
-        '/api/overlays/' + encodeURIComponent(cameraId),
+    viewState = await api(
+        '/api/layers/' + encodeURIComponent(cameraId),
         {
             method: 'PATCH',
             headers: {
@@ -567,15 +628,12 @@ async function setEnabled(cameraId, enabled) {
         }
     );
 
-    viewState = await api('/api/state');
-
-    showStatus(enabled ? 'Overlay enabled' : 'Overlay disabled');
+    showStatus(enabled ? 'Camera layer enabled' : 'Camera layer disabled');
 }
 
 
 function showStatus(message) {
     const status = document.getElementById('status');
-
     status.textContent = message;
 
     setTimeout(() => {
@@ -588,6 +646,11 @@ refresh().catch(error => {
     console.error(error);
     alert(error);
 });
+
+// Keep diagnostics fresh without changing layer controls/state.
+setInterval(() => {
+    refresh().catch(console.error);
+}, 2000);
 
 </script>
 
@@ -617,32 +680,8 @@ def state_api():
     return jsonify(serialize_state())
 
 
-@app.route("/api/view/base", methods=["POST"])
-def set_base_api():
-    data = request.get_json(force=True)
-
-    camera_id = data.get("camera_id")
-
-    known_ids = {
-        camera.id
-        for camera in manager.list_cameras()
-    }
-
-    if camera_id not in known_ids:
-        return jsonify({
-            "error": "Unknown camera"
-        }), 404
-
-    state.set_base(camera_id)
-
-    # A camera cannot simultaneously be its own overlay.
-    state.remove_overlay(camera_id)
-
-    return jsonify(serialize_state())
-
-
-@app.route("/api/overlays", methods=["POST"])
-def add_overlay_api():
+@app.route("/api/layers", methods=["POST"])
+def add_layer_api():
     data = request.get_json(force=True)
 
     camera_id = data.get("camera_id")
@@ -654,30 +693,28 @@ def add_overlay_api():
     }
 
     if camera_id not in known_ids:
-        return jsonify({
-            "error": "Unknown camera"
-        }), 404
+        return jsonify({"error": "Unknown camera"}), 404
 
     current = state.get()
 
-    if camera_id == current.base_camera_id:
-        return jsonify({
-            "error": "Base camera cannot also be an overlay"
-        }), 400
-
     if any(
         layer.camera_id == camera_id
-        for layer in current.overlays
+        for layer in current.layers
     ):
         return jsonify({
-            "error": "Camera is already an overlay"
+            "error": "Camera is already a layer"
         }), 400
 
-    state.add_overlay(
-        OverlayLayer(
+    next_z = max(
+        (layer.z_order for layer in current.layers),
+        default=-1,
+    ) + 1
+
+    state.add_layer(
+        CameraLayer(
             camera_id=camera_id,
-            opacity=max(0.0, min(1.0, opacity)),
-            z_order=len(current.overlays),
+            opacity=opacity,
+            z_order=next_z,
         )
     )
 
@@ -685,33 +722,30 @@ def add_overlay_api():
 
 
 @app.route(
-    "/api/overlays/<path:camera_id>",
+    "/api/layers/<path:camera_id>",
     methods=["PATCH"],
 )
-def update_overlay_api(camera_id):
+def update_layer_api(camera_id):
     data = request.get_json(force=True)
 
     try:
-        state.update_overlay(
+        state.update_layer(
             camera_id,
             enabled=data.get("enabled"),
             opacity=data.get("opacity"),
         )
     except KeyError:
-        return jsonify({
-            "error": "Overlay not found"
-        }), 404
+        return jsonify({"error": "Layer not found"}), 404
 
     return jsonify(serialize_state())
 
 
 @app.route(
-    "/api/overlays/<path:camera_id>",
+    "/api/layers/<path:camera_id>",
     methods=["DELETE"],
 )
-def remove_overlay_api(camera_id):
-    state.remove_overlay(camera_id)
-
+def remove_layer_api(camera_id):
+    state.remove_layer(camera_id)
     return jsonify(serialize_state())
 
 

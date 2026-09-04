@@ -1,17 +1,23 @@
 from multicam.core.state import (
-    OverlayLayer,
+    CameraLayer,
     Transform,
     ViewStateStore,
 )
 
 
-def test_view_state():
+def test_view_state_layers():
     state = ViewStateStore()
 
-    state.set_base("camera:A")
+    state.add_layer(
+        CameraLayer(
+            camera_id="camera:A",
+            opacity=1.0,
+            z_order=0,
+        )
+    )
 
-    state.add_overlay(
-        OverlayLayer(
+    state.add_layer(
+        CameraLayer(
             camera_id="camera:B",
             opacity=0.75,
             transform=Transform(
@@ -26,18 +32,36 @@ def test_view_state():
 
     current = state.get()
 
-    assert current.base_camera_id == "camera:A"
-    assert len(current.overlays) == 1
-    assert current.overlays[0].camera_id == "camera:B"
-    assert current.overlays[0].opacity == 0.75
+    assert [layer.camera_id for layer in current.layers] == [
+        "camera:A",
+        "camera:B",
+    ]
+    assert current.layers[1].opacity == 0.75
 
-    state.update_overlay(
+    state.update_layer(
         "camera:B",
         opacity=0.5,
+        enabled=False,
     )
 
-    assert state.get().overlays[0].opacity == 0.5
+    updated = state.get().layers[1]
+    assert updated.opacity == 0.5
+    assert updated.enabled is False
 
-    state.remove_overlay("camera:B")
+    state.remove_layer("camera:B")
 
-    assert state.get().overlays == []
+    assert [layer.camera_id for layer in state.get().layers] == [
+        "camera:A"
+    ]
+
+
+def test_view_state_rejects_duplicate_camera_layer():
+    state = ViewStateStore()
+    state.add_layer(CameraLayer(camera_id="camera:A"))
+
+    try:
+        state.add_layer(CameraLayer(camera_id="camera:A"))
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Duplicate camera layer was accepted")

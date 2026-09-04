@@ -5,7 +5,7 @@ from PIL import Image
 
 from multicam.core.cameras import CameraManager, FrameBroker
 from multicam.core.imaging import Compositor
-from multicam.core.state import OverlayLayer, ViewState
+from multicam.core.state import CameraLayer, ViewState
 from multicam.backends.picamera2 import Picamera2Backend
 from multicam.backends.aravis import AravisBackend
 
@@ -33,11 +33,11 @@ if xenics is None:
     raise SystemExit("No Aravis/Xenics camera found")
 
 print()
-print("Base:")
+print("Layer 1:")
 print(f"  {picam.id}")
 
 print()
-print("Overlay:")
+print("Layer 2:")
 print(f"  {xenics.id}")
 
 broker = FrameBroker()
@@ -76,13 +76,17 @@ frames = {
 }
 
 state = ViewState(
-    base_camera_id=picam.id,
-    overlays=[
-        OverlayLayer(
+    layers=[
+        CameraLayer(
+            camera_id=picam.id,
+            opacity=1.0,
+            z_order=0,
+        ),
+        CameraLayer(
             camera_id=xenics.id,
             opacity=0.50,
-            z_order=0,
-        )
+            z_order=1,
+        ),
     ],
 )
 

@@ -20,19 +20,15 @@ class LiveViewService:
     def get_composite(self):
         view_state = self.state.get()
 
-        if view_state.base_camera_id is None:
+        if not view_state.layers:
             return None
 
         frames = {}
 
-        base = self.broker.get_latest(
-            view_state.base_camera_id
-        )
-
-        if base is not None:
-            frames[view_state.base_camera_id] = base
-
-        for layer in view_state.overlays:
+        # Retrieve all layer frames, including disabled layers. The compositor
+        # may use the first available layer to preserve output canvas geometry
+        # while that layer is hidden.
+        for layer in view_state.layers:
             frame = self.broker.get_latest(
                 layer.camera_id
             )

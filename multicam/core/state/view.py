@@ -14,7 +14,7 @@ class Transform:
 
 
 @dataclass(slots=True)
-class OverlayLayer:
+class CameraLayer:
     camera_id: str
     enabled: bool = True
     opacity: float = 1.0
@@ -25,9 +25,7 @@ class OverlayLayer:
 
 @dataclass(slots=True)
 class ViewState:
-    base_camera_id: str | None = None
-    base_opacity: float = 1.0
-    overlays: list[OverlayLayer] = field(default_factory=list)
+    layers: list[CameraLayer] = field(default_factory=list)
 
 
 class ViewStateStore:
@@ -38,49 +36,35 @@ class ViewStateStore:
     def get(self) -> ViewState:
         with self._lock:
             return ViewState(
-                base_camera_id=self._state.base_camera_id,
-                base_opacity=self._state.base_opacity,
-                overlays=[
-                    OverlayLayer(
-                        camera_id=layer.camera_id,
-                        enabled=layer.enabled,
-                        opacity=layer.opacity,
-                        transform=Transform(
-                            x=layer.transform.x,
-                            y=layer.transform.y,
-                            scale_x=layer.transform.scale_x,
-                            scale_y=layer.transform.scale_y,
-                            rotation_deg=layer.transform.rotation_deg,
-                        ),
-                        display_mode=layer.display_mode,
-                        z_order=layer.z_order,
-                    )
-                    for layer in self._state.overlays
+                layers=[
+                    self._copy_layer(layer)
+                    for layer in self._state.layers
                 ],
             )
 
-    def set_base(self, camera_id: str | None) -> None:
+    def add_layer(self, layer: CameraLayer) -> None:
         with self._lock:
-            self._state.base_camera_id = camera_id
+            if any(
+                item.camera_id == layer.camera_id
+                for item in self._state.layers
+            ):
+                raise ValueError(
+                    f"Camera is already a layer: {layer.camera_id}"
+                )
 
-    def set_base_opacity(self, opacity: float) -> None:
-        with self._lock:
-            self._state.base_opacity = max(0.0, min(1.0, opacity))
+            layer.opacity = self._clamp_opacity(layer.opacity)
+            self._state.layers.append(self._copy_layer(layer))
+            self._sort_layers()
 
-    def add_overlay(self, layer: OverlayLayer) -> None:
+    def remove_layer(self, camera_id: str) -> None:
         with self._lock:
-            self._state.overlays.append(layer)
-            self._state.overlays.sort(key=lambda item: item.z_order)
-
-    def remove_overlay(self, camera_id: str) -> None:
-        with self._lock:
-            self._state.overlays = [
+            self._state.layers = [
                 layer
-                for layer in self._state.overlays
+                for layer in self._state.layers
                 if layer.camera_id != camera_id
             ]
 
-    def update_overlay(
+    def update_layer(
         self,
         camera_id: str,
         *,
@@ -91,29 +75,58 @@ class ViewStateStore:
         z_order: int | None = None,
     ) -> None:
         with self._lock:
-            for layer in self._state.overlays:
+            for layer in self._state.layers:
                 if layer.camera_id != camera_id:
                     continue
 
                 if enabled is not None:
-                    layer.enabled = enabled
+                    layer.enabled = bool(enabled)
 
                 if opacity is not None:
-                    layer.opacity = max(0.0, min(1.0, opacity))
+                    layer.opacity = self._clamp_opacity(opacity)
 
                 if transform is not None:
-                    layer.transform = transform
+                    layer.transform = Transform(
+                        x=transform.x,
+                        y=transform.y,
+                        scale_x=transform.scale_x,
+                        scale_y=transform.scale_y,
+                        rotation_deg=transform.rotation_deg,
+                    )
 
                 if display_mode is not None:
                     layer.display_mode = display_mode
 
                 if z_order is not None:
-                    layer.z_order = z_order
+                    layer.z_order = int(z_order)
 
-                self._state.overlays.sort(
-                    key=lambda item: item.z_order
-                )
-
+                self._sort_layers()
                 return
 
             raise KeyError(camera_id)
+
+    def _sort_layers(self) -> None:
+        self._state.layers.sort(
+            key=lambda item: item.z_order
+        )
+
+    @staticmethod
+    def _clamp_opacity(opacity: float) -> float:
+        return max(0.0, min(1.0, float(opacity)))
+
+    @staticmethod
+    def _copy_layer(layer: CameraLayer) -> CameraLayer:
+        return CameraLayer(
+            camera_id=layer.camera_id,
+            enabled=layer.enabled,
+            opacity=layer.opacity,
+            transform=Transform(
+                x=layer.transform.x,
+                y=layer.transform.y,
+                scale_x=layer.transform.scale_x,
+                scale_y=layer.transform.scale_y,
+                rotation_deg=layer.transform.rotation_deg,
+            ),
+            display_mode=layer.display_mode,
+            z_order=layer.z_order,
+        )

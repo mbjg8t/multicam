@@ -47,16 +47,17 @@ can practically operate.
 
 No code should assume two cameras.
 
-### 4. Overlay count is dynamic
+### 4. Camera layers are dynamic and uniform
 
-A view consists conceptually of:
+A view consists of 0..N camera layers. Every displayed camera uses the same
+layer model; there is no special base-camera object in the application state.
 
-    base camera
-    + 0..N overlay layers
+The first visible camera is normally added as Layer 1 at startup. It can be
+disabled, removed or treated like any other layer. Additional cameras are
+added as more layers.
 
-Overlay layers are stored as a collection/list.
-
-Do not create fixed fields such as overlay1, overlay2 or thermal_overlay.
+Layers are stored as a collection/list. Do not create fixed fields such as
+overlay1, overlay2, visible_layer or thermal_overlay.
 
 ### 5. Cameras are acquired centrally
 
@@ -103,7 +104,7 @@ particular camera model or platform.
 
 Independent windows operate against one shared application state.
 
-Changing camera configuration, overlays or alignment in a tool window
+Changing camera configuration, layers or alignment in a tool window
 must be reflected immediately in the live main view.
 
 ### 9. GUI is not the application
@@ -136,7 +137,7 @@ Implement now:
 - Raspberry Pi Picamera2 backend
 - Xenics GenICam/Aravis backend
 - FLIR Boson backend
-- generic base + 0..N overlays
+- generic 0..N camera layers
 - shared application state
 - live main view
 - camera configuration window
@@ -165,7 +166,7 @@ Leave extension points but do not implement yet:
     |              |         |
  Live View     Compositor   Tools
                    |
-             Base + 0..N Layers
+                0..N Layers
 
 Shared state and events connect all application services and user interfaces.
 
