@@ -27,3 +27,4 @@ config/local.json
 *.bak
 *.backup
 *~
+*.egg-info/
