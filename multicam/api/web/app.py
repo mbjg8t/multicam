@@ -842,6 +842,10 @@ function renderAvailableCameras() {
     const select = document.getElementById('availableCamera');
     const button = document.getElementById('addLayerButton');
 
+    // Preserve the user's selection when the periodic refresh rebuilds
+    // the list of available cameras.
+    const selectedCameraId = select.value;
+
     const used = new Set(
         viewState.layers.map(layer => layer.camera_id)
     );
@@ -870,6 +874,10 @@ function renderAvailableCameras() {
         option.value = camera.id;
         option.textContent = cameraLabel(camera);
         select.appendChild(option);
+    }
+
+    if (available.some(camera => camera.id === selectedCameraId)) {
+        select.value = selectedCameraId;
     }
 }
 

@@ -21,7 +21,7 @@ from .camera_overlays import is_camera_overlay
 
 class RaspberryPiCameraProvisioner(CameraProvisioner):
     """
-    Read-only Raspberry Pi camera provisioning inspector.
+    Raspberry Pi camera provisioning adapter.
 
     Current responsibilities:
       - identify the Pi model
@@ -37,9 +37,11 @@ class RaspberryPiCameraProvisioner(CameraProvisioner):
         self,
         config_path: str | Path = "/boot/firmware/config.txt",
         model_path: str | Path = "/proc/device-tree/model",
+        symbols_path: str | Path = "/proc/device-tree/__symbols__",
     ):
         self.config_path = Path(config_path)
         self.model_path = Path(model_path)
+        self.symbols_path = Path(symbols_path)
 
     def inspect(self, manager: CameraManager) -> ProvisioningSnapshot:
         errors: list[str] = []
@@ -67,7 +69,10 @@ class RaspberryPiCameraProvisioner(CameraProvisioner):
             runtime_cameras,
         )
 
-        proposed_changes = self._propose_changes(entries)
+        proposed_changes = self._propose_changes(
+            entries,
+            errors,
+        )
 
         return ProvisioningSnapshot(
             platform="raspberry_pi",
@@ -97,7 +102,7 @@ class RaspberryPiCameraProvisioner(CameraProvisioner):
         Current safety limits:
           - only add_overlay is supported
           - existing overlays are never removed
-          - port assignments are never inferred
+          - port assignments must come from resolved device-tree topology
           - a backup is created before modification
           - resulting configuration is verified after writing
           - reboot is never performed here
@@ -511,32 +516,117 @@ class RaspberryPiCameraProvisioner(CameraProvisioner):
 
         return entries
 
-    @staticmethod
     def _propose_changes(
+        self,
         entries: list[CameraProvisioningEntry],
+        errors: list[str],
     ) -> list[ProvisioningChange]:
         changes: list[ProvisioningChange] = []
 
         for entry in entries:
             if (
                 entry.status
-                == ProvisioningStatus.DETECTED_NOT_CONFIGURED
-                and entry.runtime is not None
+                != ProvisioningStatus.DETECTED_NOT_CONFIGURED
+                or entry.runtime is None
             ):
-                overlay = entry.runtime.model or entry.runtime.name
+                continue
 
-                changes.append(
-                    ProvisioningChange(
-                        action="add_overlay",
-                        description=(
-                            f"Add camera overlay for {overlay}."
-                        ),
-                        overlay=overlay,
-                        reboot_required=True,
-                    )
+            overlay = entry.runtime.model or entry.runtime.name
+            parameters = self._runtime_overlay_parameters(
+                entry.runtime,
+            )
+
+            if parameters is None:
+                errors.append(
+                    "Unable to determine Raspberry Pi camera connector "
+                    f"for {overlay}; no automatic configuration change "
+                    "was proposed."
                 )
+                continue
+
+            changes.append(
+                ProvisioningChange(
+                    action="add_overlay",
+                    description=(
+                        f"Add camera overlay for {overlay}."
+                    ),
+                    overlay=overlay,
+                    parameters=parameters,
+                    reboot_required=True,
+                )
+            )
 
         return changes
+
+    def _runtime_overlay_parameters(
+        self,
+        runtime: RuntimeCamera,
+    ) -> dict[str, object] | None:
+        """
+        Resolve a libcamera runtime path to Raspberry Pi overlay parameters.
+
+        Raspberry Pi camera overlays use CAM1 by default. The explicit
+        ``cam0`` parameter redirects the overlay to CAM0.
+
+        The mapping is derived from the live device-tree symbols rather
+        than Picamera2 runtime numbering.
+        """
+
+        runtime_path = runtime.runtime_path
+
+        if not runtime_path:
+            return None
+
+        cam0_path = self._read_dt_symbol("i2c_csi_dsi0")
+        cam1_path = self._read_dt_symbol("i2c_csi_dsi1")
+
+        if cam0_path and self._path_is_within(
+            runtime_path,
+            cam0_path,
+        ):
+            return {"cam0": True}
+
+        if cam1_path and self._path_is_within(
+            runtime_path,
+            cam1_path,
+        ):
+            return {}
+
+        return None
+
+    def _read_dt_symbol(self, name: str) -> str | None:
+        path = self.symbols_path / name
+
+        try:
+            value = path.read_bytes().rstrip(b"\x00").decode()
+        except (OSError, UnicodeDecodeError):
+            return None
+
+        return value or None
+
+    @staticmethod
+    def _path_is_within(
+        runtime_path: str,
+        parent_path: str,
+    ) -> bool:
+        def normalize(value: str) -> str:
+            value = value.rstrip("/")
+
+            # libcamera currently reports paths rooted at /base while
+            # device-tree __symbols__ paths are rooted directly at /.
+            # They refer to the same live device-tree hierarchy.
+            if value.startswith("/base/"):
+                value = value[len("/base"):]
+
+            return value
+
+        runtime = normalize(runtime_path)
+        parent = normalize(parent_path)
+
+        return (
+            runtime == parent
+            or runtime.startswith(parent + "/")
+        )
 
     @staticmethod
     def _find_configuration(

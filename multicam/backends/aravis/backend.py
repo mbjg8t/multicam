@@ -243,7 +243,13 @@ class AravisBackend(CameraBackend):
             model = Aravis.get_device_model(index)
             serial = Aravis.get_device_serial_nbr(index)
 
-            persistent_part = serial or device_id or str(index)
+            # Aravis can occasionally expose an incomplete USB3Vision
+            # discovery entry. Do not attempt to open it; doing so can
+            # block startup while the device bootstrap times out.
+            if not device_id or device_id in {"-", "--"}:
+                continue
+
+            persistent_part = serial or device_id
 
             camera_id = (
                 f"aravis:{vendor or 'camera'}:{persistent_part}"

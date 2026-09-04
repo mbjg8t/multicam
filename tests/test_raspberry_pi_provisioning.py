@@ -368,9 +368,19 @@ def test_detected_unconfigured_camera_proposes_overlay_only(
 ):
     config = tmp_path / "config.txt"
     model = tmp_path / "model"
+    symbols = tmp_path / "__symbols__"
+
+    symbols.mkdir()
 
     config.write_text("camera_auto_detect=0\n")
     model.write_text("Raspberry Pi 5")
+
+    (symbols / "i2c_csi_dsi0").write_bytes(
+        b"/test/i2c@88000\x00"
+    )
+    (symbols / "i2c_csi_dsi1").write_bytes(
+        b"/test/i2c@80000\x00"
+    )
 
     camera = make_camera(
         "picamera2:/base/test/i2c@88000/ov5647@36",
@@ -386,6 +396,7 @@ def test_detected_unconfigured_camera_proposes_overlay_only(
     snapshot = RaspberryPiCameraProvisioner(
         config_path=config,
         model_path=model,
+        symbols_path=symbols,
     ).inspect(manager)
 
     assert len(snapshot.proposed_changes) == 1
@@ -394,14 +405,12 @@ def test_detected_unconfigured_camera_proposes_overlay_only(
 
     assert change.action == "add_overlay"
     assert change.overlay == "ov5647"
-
-    # Do not guess cam0/cam1 from runtime camera numbering.
-    assert change.parameters == {}
-
+    assert change.parameters == {"cam0": True}
     assert change.reboot_required is True
+
     assert snapshot.pending_changes is True
     assert snapshot.reboot_required is True
-
+    assert snapshot.errors == []
 
 def test_missing_runtime_camera_does_not_propose_removing_config(
     tmp_path: Path,
@@ -609,3 +618,116 @@ def test_service_apply_delegates_to_pi_provisioner(
     assert result.backup_path is not None
 
     assert "dtoverlay=ov5647\n" in config.read_text()
+
+
+def test_pi_runtime_path_resolves_cam0_from_device_tree_symbol(
+    tmp_path: Path,
+):
+    from multicam.core.provisioning import RuntimeCamera
+
+    symbols = tmp_path / "__symbols__"
+    symbols.mkdir()
+
+    (symbols / "i2c_csi_dsi0").write_bytes(
+        b"/axi/pcie@1000120000/rp1/i2c@88000\x00"
+    )
+    (symbols / "i2c_csi_dsi1").write_bytes(
+        b"/axi/pcie@1000120000/rp1/i2c@80000\x00"
+    )
+
+    provisioner = RaspberryPiCameraProvisioner(
+        symbols_path=symbols,
+    )
+
+    runtime = RuntimeCamera(
+        runtime_id="test",
+        backend="picamera2",
+        name="ov5647",
+        model="ov5647",
+        connected=True,
+        runtime_number=0,
+        runtime_path=(
+            "/base/axi/pcie@1000120000/rp1/"
+            "i2c@88000/ov5647@36"
+        ),
+        rotation=0,
+    )
+
+    assert provisioner._runtime_overlay_parameters(runtime) == {
+        "cam0": True
+    }
+
+
+def test_pi_runtime_path_resolves_default_cam1(
+    tmp_path: Path,
+):
+    from multicam.core.provisioning import RuntimeCamera
+
+    symbols = tmp_path / "__symbols__"
+    symbols.mkdir()
+
+    (symbols / "i2c_csi_dsi0").write_bytes(
+        b"/axi/pcie@1000120000/rp1/i2c@88000\x00"
+    )
+    (symbols / "i2c_csi_dsi1").write_bytes(
+        b"/axi/pcie@1000120000/rp1/i2c@80000\x00"
+    )
+
+    provisioner = RaspberryPiCameraProvisioner(
+        symbols_path=symbols,
+    )
+
+    runtime = RuntimeCamera(
+        runtime_id="test",
+        backend="picamera2",
+        name="ov64a40",
+        model="ov64a40",
+        connected=True,
+        runtime_number=1,
+        runtime_path=(
+            "/base/axi/pcie@1000120000/rp1/"
+            "i2c@80000/ov64a40@36"
+        ),
+        rotation=180,
+    )
+
+    assert provisioner._runtime_overlay_parameters(runtime) == {}
+
+
+def test_pi_runtime_path_with_unknown_connector_is_not_resolved(
+    tmp_path: Path,
+):
+    from multicam.core.provisioning import RuntimeCamera
+
+    symbols = tmp_path / "__symbols__"
+    symbols.mkdir()
+
+    (symbols / "i2c_csi_dsi0").write_bytes(
+        b"/axi/pcie@1000120000/rp1/i2c@88000\x00"
+    )
+    (symbols / "i2c_csi_dsi1").write_bytes(
+        b"/axi/pcie@1000120000/rp1/i2c@80000\x00"
+    )
+
+    provisioner = RaspberryPiCameraProvisioner(
+        symbols_path=symbols,
+    )
+
+    runtime = RuntimeCamera(
+        runtime_id="test",
+        backend="picamera2",
+        name="future_camera",
+        model="future_camera",
+        connected=True,
+        runtime_number=7,
+        runtime_path=(
+            "/base/axi/pcie@1000120000/rp1/"
+            "i2c@DEADBEEF/future_camera@36"
+        ),
+        rotation=0,
+    )
+
+    assert (
+        provisioner._runtime_overlay_parameters(runtime)
+        is None
+    )
