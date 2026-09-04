@@ -4,8 +4,6 @@ import logging
 
 import io
 import time
-import json
-import re
 
 from flask import Flask, Response, jsonify, request
 from PIL import Image
@@ -56,58 +54,6 @@ provisioning_service = CameraProvisioningService(
         config_path=pi_config_path,
     ),
 )
-
-
-
-PROFILE_DIR = (
-    Path(__file__).resolve().parents[3]
-    / "config"
-    / "camera_profiles"
-)
-
-
-def _profile_filename(name: str) -> str:
-    safe = re.sub(
-        r"[^A-Za-z0-9._ -]+",
-        "_",
-        name.strip(),
-    ).strip(" .")
-
-    if not safe:
-        raise ValueError("Profile name is required")
-
-    return safe + ".json"
-
-
-def _profile_path(name: str) -> Path:
-    return PROFILE_DIR / _profile_filename(name)
-
-
-def _read_camera_profiles():
-    PROFILE_DIR.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    profiles = []
-
-    for path in sorted(PROFILE_DIR.glob("*.json")):
-        try:
-            data = json.loads(path.read_text())
-
-            profiles.append({
-                "name": data.get("name", path.stem),
-                "camera": data.get("camera", {}),
-                "controls": data.get("controls", {}),
-            })
-
-        except Exception:
-            app.logger.exception(
-                "Unable to read camera profile %s",
-                path,
-            )
-
-    return profiles
 
 
 def initialize():
@@ -461,24 +407,15 @@ def cameras_page():
 
         .setting-row {
             display: grid;
-            grid-template-columns:
-                140px
-                minmax(120px, 220px)
-                70px
-                minmax(180px, 1fr);
+            grid-template-columns: 140px minmax(120px, 220px) 80px 1fr;
             gap: 8px;
             align-items: center;
             margin: 7px 0;
         }
 
-        .setting-row input[type="number"] {
+        .setting-row input {
             width: 100%;
             box-sizing: border-box;
-        }
-
-        .setting-row input[type="checkbox"] {
-            width: auto;
-            justify-self: start;
         }
 
         .setting-range {
@@ -486,150 +423,10 @@ def cameras_page():
             font-size: 12px;
         }
 
-        .setting-actions {
-            display: flex;
-            gap: 6px;
-            align-items: center;
-        }
-
-        .setting-actions button {
-            width: auto;
-            min-width: 64px;
-            padding: 6px 12px;
-        }
-
-        .setting-default {
-            color: #aaa;
-            font-size: 12px;
-            margin-left: 6px;
-        }
-
         .settings-message {
             color: #aaa;
             font-size: 13px;
             padding: 5px 0;
-        }
-
-        .camera-settings {
-            padding: 12px 4px 6px 4px;
-        }
-
-        .camera-profile-bar {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin: 0 0 16px 0;
-            padding-bottom: 12px;
-            border-bottom: 1px solid #444;
-        }
-
-        .camera-profile-bar label {
-            color: #ccc;
-            white-space: nowrap;
-        }
-
-        .camera-profile-bar select {
-            min-width: 180px;
-        }
-
-        .camera-profile-bar button {
-            width: auto;
-            min-width: 64px;
-            padding: 6px 10px;
-        }
-
-        .settings-section {
-            margin: 8px 0 18px 0;
-        }
-
-        .settings-section-title {
-            color: #aaa;
-            font-size: 12px;
-            font-weight: bold;
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
-            margin: 4px 0 8px 0;
-        }
-
-        .control-row {
-            display: grid;
-            grid-template-columns:
-                135px
-                minmax(180px, 360px)
-                110px
-                32px;
-            gap: 10px;
-            align-items: center;
-            min-height: 34px;
-            margin: 4px 0;
-        }
-
-        .control-row.readonly {
-            grid-template-columns:
-                135px
-                minmax(180px, 360px);
-        }
-
-        .control-name {
-            white-space: nowrap;
-        }
-
-        .control-slider {
-            width: 100%;
-        }
-
-        .control-value {
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-
-        .control-value input[type="number"] {
-            width: 82px;
-            box-sizing: border-box;
-        }
-
-        .control-unit {
-            color: #ccc;
-            white-space: nowrap;
-        }
-
-        .control-reset {
-            width: 30px;
-            min-width: 30px;
-            padding: 4px;
-            font-size: 16px;
-            line-height: 18px;
-        }
-
-        .control-default {
-            color: #888;
-            font-size: 11px;
-            margin-left: 145px;
-            margin-top: -2px;
-            margin-bottom: 5px;
-        }
-
-        .control-toggle {
-            justify-self: start;
-        }
-
-        .control-readonly-value {
-            color: #ddd;
-        }
-
-        @media (max-width: 800px) {
-            .control-row {
-                grid-template-columns:
-                    120px
-                    minmax(120px, 1fr)
-                    95px
-                    32px;
-            }
-
-            .control-default {
-                margin-left: 130px;
-            }
         }
 
         .empty {
@@ -1143,633 +940,6 @@ async function toggleCameraSettings(cameraId) {
 }
 
 
-const cameraControlTimers = new Map();
-
-
-function cameraControlSection(capability) {
-    const id = capability.id;
-
-    if (
-        id === 'cooling_enable' ||
-        id === 'cooling_target' ||
-        id.includes('temperature')
-    ) {
-        return 'Sensor';
-    }
-
-    if (
-        id === 'reverse_x' ||
-        id === 'reverse_y'
-    ) {
-        return 'Orientation';
-    }
-
-    return 'Image';
-}
-
-
-function cameraControlDefault(capability) {
-    if (
-        capability.metadata &&
-        capability.metadata.session_default !== undefined &&
-        capability.metadata.session_default !== null
-    ) {
-        return capability.metadata.session_default;
-    }
-
-    if (
-        capability.value !== undefined &&
-        capability.value !== null
-    ) {
-        return capability.value;
-    }
-
-    return null;
-}
-
-
-function cameraSliderSpec(capability, value) {
-    if (
-        capability.metadata &&
-        capability.metadata.ui === 'manual'
-    ) {
-        return null;
-    }
-
-    const minimum = Number(capability.minimum);
-    const maximum = Number(capability.maximum);
-    const current = Number(value);
-
-    if (
-        !Number.isFinite(minimum) ||
-        !Number.isFinite(maximum) ||
-        maximum <= minimum ||
-        !Number.isFinite(current)
-    ) {
-        return null;
-    }
-
-    const useLog =
-        minimum > 0 &&
-        maximum / minimum >= 100;
-
-    return {
-        minimum,
-        maximum,
-        useLog
-    };
-}
-
-
-function valueToSlider(value, spec) {
-    value = Number(value);
-
-    if (!spec.useLog) {
-        return value;
-    }
-
-    const minLog = Math.log(spec.minimum);
-    const maxLog = Math.log(spec.maximum);
-    const valueLog = Math.log(
-        Math.max(spec.minimum, value)
-    );
-
-    return (
-        (valueLog - minLog) /
-        (maxLog - minLog) *
-        1000
-    );
-}
-
-
-function sliderToValue(sliderValue, spec) {
-    sliderValue = Number(sliderValue);
-
-    if (!spec.useLog) {
-        return sliderValue;
-    }
-
-    const minLog = Math.log(spec.minimum);
-    const maxLog = Math.log(spec.maximum);
-
-    return Math.exp(
-        minLog +
-        (sliderValue / 1000) *
-        (maxLog - minLog)
-    );
-}
-
-
-function scheduleCameraControl(
-    cameraId,
-    controlId,
-    value,
-    delay = 120
-) {
-    const key = cameraId + '|' + controlId;
-
-    const existing = cameraControlTimers.get(key);
-
-    if (existing) {
-        clearTimeout(existing);
-    }
-
-    const timer = setTimeout(async () => {
-        cameraControlTimers.delete(key);
-
-        try {
-            await setCameraControlValue(
-                cameraId,
-                controlId,
-                value
-            );
-        } catch (error) {
-            console.error(error);
-            showStatus('Unable to update camera setting');
-        }
-    }, delay);
-
-    cameraControlTimers.set(key, timer);
-}
-
-
-async function setCameraControlValue(
-    cameraId,
-    controlId,
-    value
-) {
-    await api(
-        '/api/cameras/' +
-        encodeURIComponent(cameraId) +
-        '/controls',
-        {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                control_id: controlId,
-                value: value
-            })
-        }
-    );
-}
-
-
-function formatCameraValue(value) {
-    const number = Number(value);
-
-    if (!Number.isFinite(number)) {
-        return String(value);
-    }
-
-    if (Number.isInteger(number)) {
-        return String(number);
-    }
-
-    if (Math.abs(number) >= 100) {
-        return number.toFixed(2).replace(/\\.?0+$/, '');
-    }
-
-    return number.toFixed(3).replace(/\\.?0+$/, '');
-}
-
-
-function cameraNumericControl(
-    cameraId,
-    capability,
-    value
-) {
-    const defaultValue = cameraControlDefault(capability);
-
-    const inputId =
-        'control-' +
-        encodeURIComponent(cameraId) +
-        '-' +
-        capability.id;
-
-    const sliderId =
-        'slider-' +
-        encodeURIComponent(cameraId) +
-        '-' +
-        capability.id;
-
-    const spec = cameraSliderSpec(
-        capability,
-        value
-    );
-
-    let sliderHtml = '<span></span>';
-
-    if (spec) {
-        const sliderMin = spec.useLog
-            ? 0
-            : spec.minimum;
-
-        const sliderMax = spec.useLog
-            ? 1000
-            : spec.maximum;
-
-        const sliderStep = spec.useLog
-            ? 1
-            : (
-                capability.step !== null &&
-                capability.step !== undefined
-                    ? capability.step
-                    : 'any'
-            );
-
-        const sliderValue = valueToSlider(
-            value,
-            spec
-        );
-
-        sliderHtml = `
-            <input
-                class="control-slider"
-                id="${sliderId}"
-                type="range"
-                min="${sliderMin}"
-                max="${sliderMax}"
-                step="${sliderStep}"
-                value="${sliderValue}"
-                oninput="cameraSliderChanged(
-                    '${escapeJs(cameraId)}',
-                    '${escapeJs(capability.id)}',
-                    this.value,
-                    ${spec.minimum},
-                    ${spec.maximum},
-                    ${spec.useLog ? 'true' : 'false'}
-                )"
-            >
-        `;
-    }
-
-    const defaultHtml =
-        defaultValue !== null
-            ? `
-                <div class="control-default">
-                    Default:
-                    ${escapeHtml(formatCameraValue(defaultValue))}
-                    ${escapeHtml(capability.units || '')}
-                </div>
-            `
-            : '';
-
-    return `
-        <div class="control-row">
-            <div class="control-name">
-                ${escapeHtml(capability.name)}
-            </div>
-
-            ${sliderHtml}
-
-            <div class="control-value">
-                <input
-                    id="${inputId}"
-                    type="number"
-                    value="${escapeHtml(value ?? '')}"
-                    ${
-                        capability.step !== null &&
-                        capability.step !== undefined
-                            ? `step="${escapeHtml(capability.step)}"`
-                            : 'step="any"'
-                    }
-                    ${
-                        capability.minimum !== null &&
-                        capability.minimum !== undefined
-                            ? `min="${escapeHtml(capability.minimum)}"`
-                            : ''
-                    }
-                    ${
-                        capability.maximum !== null &&
-                        capability.maximum !== undefined
-                            ? `max="${escapeHtml(capability.maximum)}"`
-                            : ''
-                    }
-                    onkeydown="cameraNumberKeyDown(
-                        event,
-                        '${escapeJs(cameraId)}',
-                        '${escapeJs(capability.id)}'
-                    )"
-                    onchange="cameraNumberChanged(
-                        '${escapeJs(cameraId)}',
-                        '${escapeJs(capability.id)}'
-                    )"
-                >
-
-                <span class="control-unit">
-                    ${escapeHtml(capability.units || '')}
-                </span>
-            </div>
-
-            ${
-                defaultValue !== null
-                    ? `
-                        <button
-                            class="control-reset"
-                            title="Reset to default"
-                            onclick="resetCameraControl(
-                                '${escapeJs(cameraId)}',
-                                '${escapeJs(capability.id)}',
-                                ${JSON.stringify(defaultValue)}
-                            )"
-                        >↺</button>
-                    `
-                    : '<span></span>'
-            }
-        </div>
-
-        ${defaultHtml}
-    `;
-}
-
-
-function cameraBooleanControl(
-    cameraId,
-    capability,
-    value
-) {
-    const defaultValue = cameraControlDefault(capability);
-
-    const inputId =
-        'control-' +
-        encodeURIComponent(cameraId) +
-        '-' +
-        capability.id;
-
-    return `
-        <div class="control-row">
-            <div class="control-name">
-                ${escapeHtml(capability.name)}
-            </div>
-
-            <div class="control-toggle">
-                <input
-                    id="${inputId}"
-                    type="checkbox"
-                    ${value ? 'checked' : ''}
-                    onchange="cameraBooleanChanged(
-                        '${escapeJs(cameraId)}',
-                        '${escapeJs(capability.id)}',
-                        this.checked
-                    )"
-                >
-            </div>
-
-            <span></span>
-
-            ${
-                defaultValue !== null
-                    ? `
-                        <button
-                            class="control-reset"
-                            title="Reset to default"
-                            onclick="resetCameraControl(
-                                '${escapeJs(cameraId)}',
-                                '${escapeJs(capability.id)}',
-                                ${JSON.stringify(defaultValue)}
-                            )"
-                        >↺</button>
-                    `
-                    : '<span></span>'
-            }
-        </div>
-
-        ${
-            defaultValue !== null
-                ? `
-                    <div class="control-default">
-                        Default:
-                        ${defaultValue ? 'On' : 'Off'}
-                    </div>
-                `
-                : ''
-        }
-    `;
-}
-
-
-function cameraReadonlyControl(
-    capability,
-    value
-) {
-    return `
-        <div class="control-row readonly">
-            <div class="control-name">
-                ${escapeHtml(capability.name)}
-            </div>
-
-            <div class="control-readonly-value">
-                ${escapeHtml(value ?? '')}
-                ${escapeHtml(capability.units || '')}
-            </div>
-        </div>
-    `;
-}
-
-
-function cameraProfileSelectId(cameraId) {
-    return (
-        'camera-profile-' +
-        encodeURIComponent(cameraId)
-    );
-}
-
-
-function cameraProfileBar(cameraId, profiles) {
-    const selectId = cameraProfileSelectId(cameraId);
-
-    let options = `
-        <option value="">Select profile...</option>
-    `;
-
-    for (const profile of profiles) {
-        options += `
-            <option value="${escapeHtml(profile.name)}">
-                ${escapeHtml(profile.name)}
-            </option>
-        `;
-    }
-
-    return `
-        <div class="camera-profile-bar">
-            <label for="${selectId}">
-                Profile:
-            </label>
-
-            <select id="${selectId}">
-                ${options}
-            </select>
-
-            <button onclick="loadCameraProfile(
-                '${escapeJs(cameraId)}'
-            )">
-                Load
-            </button>
-
-            <button onclick="saveCameraProfile(
-                '${escapeJs(cameraId)}'
-            )">
-                Save As...
-            </button>
-
-            <button onclick="deleteCameraProfile(
-                '${escapeJs(cameraId)}'
-            )">
-                Delete
-            </button>
-        </div>
-    `;
-}
-
-
-function selectedCameraProfile(cameraId) {
-    const select = document.getElementById(
-        cameraProfileSelectId(cameraId)
-    );
-
-    if (!select) {
-        return '';
-    }
-
-    return select.value;
-}
-
-
-async function saveCameraProfile(cameraId) {
-    const name = window.prompt(
-        'Camera profile name:'
-    );
-
-    if (!name || !name.trim()) {
-        return;
-    }
-
-    try {
-        const result = await api(
-            '/api/camera-profiles',
-            {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    name: name.trim(),
-                    camera_id: cameraId
-                })
-            }
-        );
-
-        await loadCameraSettings(cameraId);
-
-        const select = document.getElementById(
-            cameraProfileSelectId(cameraId)
-        );
-
-        if (select && result.profile) {
-            select.value = result.profile.name;
-        }
-
-    } catch (error) {
-        window.alert(
-            'Unable to save camera profile: ' +
-            error.message
-        );
-    }
-}
-
-
-async function loadCameraProfile(cameraId) {
-    const profileName = selectedCameraProfile(cameraId);
-
-    if (!profileName) {
-        window.alert('Select a profile first.');
-        return;
-    }
-
-    try {
-        const result = await api(
-            '/api/camera-profiles/' +
-            encodeURIComponent(profileName) +
-            '/load',
-            {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    camera_id: cameraId
-                })
-            }
-        );
-
-        await loadCameraSettings(cameraId);
-
-        const select = document.getElementById(
-            cameraProfileSelectId(cameraId)
-        );
-
-        if (select) {
-            select.value = profileName;
-        }
-
-        if (
-            result.errors &&
-            result.errors.length > 0
-        ) {
-            window.alert(
-                'Profile loaded with ' +
-                result.errors.length +
-                ' control error(s).'
-            );
-        }
-
-    } catch (error) {
-        window.alert(
-            'Unable to load camera profile: ' +
-            error.message
-        );
-    }
-}
-
-
-async function deleteCameraProfile(cameraId) {
-    const profileName = selectedCameraProfile(cameraId);
-
-    if (!profileName) {
-        window.alert('Select a profile first.');
-        return;
-    }
-
-    if (!window.confirm(
-        'Delete camera profile "' +
-        profileName +
-        '"?'
-    )) {
-        return;
-    }
-
-    try {
-        await api(
-            '/api/camera-profiles/' +
-            encodeURIComponent(profileName),
-            {
-                method: 'DELETE'
-            }
-        );
-
-        await loadCameraSettings(cameraId);
-
-    } catch (error) {
-        window.alert(
-            'Unable to delete camera profile: ' +
-            error.message
-        );
-    }
-}
-
-
 async function loadCameraSettings(cameraId) {
     const panel = document.getElementById(
         'settings-' + encodeURIComponent(cameraId)
@@ -1800,104 +970,91 @@ async function loadCameraSettings(cameraId) {
 
         const supported = data.capabilities.filter(
             capability =>
-                capability.type !== 'choice' &&
-                capability.id !== 'pixel_format'
+                capability.id === 'exposure' ||
+                capability.id === 'gain'
         );
 
         if (supported.length === 0) {
             currentPanel.innerHTML =
                 '<div class="settings-message">' +
-                'No camera controls reported.' +
+                'No exposure or gain controls reported by this camera.' +
                 '</div>';
             return;
         }
 
-        const sections = {
-            Image: [],
-            Sensor: [],
-            Orientation: []
-        };
+        currentPanel.innerHTML = supported.map(capability => {
+            const value =
+                capability.current_value !== null &&
+                capability.current_value !== undefined
+                    ? capability.current_value
+                    : capability.value;
 
-        for (const capability of supported) {
-            const section = cameraControlSection(capability);
+            const range = [
+                capability.minimum !== null &&
+                capability.minimum !== undefined
+                    ? `min ${capability.minimum}`
+                    : '',
+                capability.maximum !== null &&
+                capability.maximum !== undefined
+                    ? `max ${capability.maximum}`
+                    : ''
+            ].filter(Boolean).join(' | ');
 
-            if (!sections[section]) {
-                sections[section] = [];
-            }
+            return `
+                <div class="setting-row">
+                    <label>
+                        ${escapeHtml(capability.name)}
+                    </label>
 
-            sections[section].push(capability);
-        }
+                    <input
+                        id="control-${encodeURIComponent(cameraId)}-${escapeHtml(capability.id)}"
+                        type="number"
+                        value="${escapeHtml(value ?? '')}"
+                        ${
+                            capability.step !== null &&
+                            capability.step !== undefined
+                                ? `step="${escapeHtml(capability.step)}"`
+                                : 'step="any"'
+                        }
+                        ${
+                            capability.minimum !== null &&
+                            capability.minimum !== undefined
+                                ? `min="${escapeHtml(capability.minimum)}"`
+                                : ''
+                        }
+                        ${
+                            capability.maximum !== null &&
+                            capability.maximum !== undefined
+                                ? `max="${escapeHtml(capability.maximum)}"`
+                                : ''
+                        }
+                        ${capability.writable ? '' : 'disabled'}
+                    >
 
-        let profiles = [];
+                    <span>
+                        ${escapeHtml(capability.units || '')}
+                    </span>
 
-        try {
-            const profileData = await api(
-                '/api/camera-profiles'
-            );
+                    <span class="setting-range">
+                        ${escapeHtml(range)}
+                    </span>
 
-            profiles = profileData.profiles || [];
-
-        } catch (error) {
-            console.error(
-                'Unable to load camera profiles:',
-                error
-            );
-        }
-
-        let html = cameraProfileBar(
-            cameraId,
-            profiles
-        );
-
-        for (const [sectionName, capabilities] of
-            Object.entries(sections)) {
-
-            if (capabilities.length === 0) {
-                continue;
-            }
-
-            html += `
-                <div class="settings-section">
-                    <div class="settings-section-title">
-                        ${escapeHtml(sectionName)}
-                    </div>
+                    ${
+                        capability.writable
+                            ? `
+                                <span></span>
+                                <button onclick="setCameraControl(
+                                    '${escapeJs(cameraId)}',
+                                    '${escapeJs(capability.id)}'
+                                )">
+                                    Apply
+                                </button>
+                            `
+                            : ''
+                    }
+                </div>
             `;
-
-            for (const capability of capabilities) {
-                const value =
-                    capability.current_value !== null &&
-                    capability.current_value !== undefined
-                        ? capability.current_value
-                        : capability.value;
-
-                if (!capability.writable) {
-                    html += cameraReadonlyControl(
-                        capability,
-                        value
-                    );
-                    continue;
-                }
-
-                if (capability.type === 'boolean') {
-                    html += cameraBooleanControl(
-                        cameraId,
-                        capability,
-                        value
-                    );
-                    continue;
-                }
-
-                html += cameraNumericControl(
-                    cameraId,
-                    capability,
-                    value
-                );
-            }
-
-            html += '</div>';
-        }
-
-        currentPanel.innerHTML = html;
+        }).join('');
 
     } catch (error) {
         panel.innerHTML =
@@ -1906,116 +1063,6 @@ async function loadCameraSettings(cameraId) {
             escapeHtml(error.message) +
             '</div>';
     }
-}
-
-
-function cameraSliderChanged(
-    cameraId,
-    controlId,
-    sliderValue,
-    minimum,
-    maximum,
-    useLog
-) {
-    const spec = {
-        minimum: Number(minimum),
-        maximum: Number(maximum),
-        useLog: Boolean(useLog)
-    };
-
-    const value = sliderToValue(
-        sliderValue,
-        spec
-    );
-
-    const input = document.getElementById(
-        'control-' +
-        encodeURIComponent(cameraId) +
-        '-' +
-        controlId
-    );
-
-    if (input) {
-        const magnitude = Math.abs(value);
-
-        if (magnitude >= 100) {
-            input.value = Math.round(value);
-        } else if (magnitude >= 10) {
-            input.value = value.toFixed(2);
-        } else {
-            input.value = value.toFixed(3);
-        }
-    }
-
-    scheduleCameraControl(
-        cameraId,
-        controlId,
-        Number(input ? input.value : value)
-    );
-}
-
-
-function cameraNumberChanged(
-    cameraId,
-    controlId
-) {
-    const input = document.getElementById(
-        'control-' +
-        encodeURIComponent(cameraId) +
-        '-' +
-        controlId
-    );
-
-    if (!input) {
-        return;
-    }
-
-    const value = Number(input.value);
-
-    if (!Number.isFinite(value)) {
-        return;
-    }
-
-    scheduleCameraControl(
-        cameraId,
-        controlId,
-        value,
-        0
-    );
-}
-
-
-function cameraNumberKeyDown(
-    event,
-    cameraId,
-    controlId
-) {
-    if (event.key !== 'Enter') {
-        return;
-    }
-
-    event.preventDefault();
-
-    cameraNumberChanged(
-        cameraId,
-        controlId
-    );
-
-    event.target.blur();
-}
-
-
-function cameraBooleanChanged(
-    cameraId,
-    controlId,
-    value
-) {
-    scheduleCameraControl(
-        cameraId,
-        controlId,
-        Boolean(value),
-        0
-    );
 }
 
 
@@ -2043,10 +1090,7 @@ async function setCameraControl(cameraId, controlId) {
                 },
                 body: JSON.stringify({
                     control_id: controlId,
-                    value:
-                        input.type === 'checkbox'
-                            ? input.checked
-                            : Number(input.value)
+                    value: Number(input.value)
                 })
             }
         );
@@ -2061,46 +1105,7 @@ async function setCameraControl(cameraId, controlId) {
 }
 
 
-async function resetCameraControl(
-    cameraId,
-    controlId,
-    defaultValue
-) {
-    const input = document.getElementById(
-        'control-' +
-        encodeURIComponent(cameraId) +
-        '-' +
-        controlId
-    );
-
-    if (input) {
-        if (input.type === 'checkbox') {
-            input.checked = Boolean(defaultValue);
-        } else {
-            input.value = defaultValue;
-        }
-    }
-
-    try {
-        await setCameraControlValue(
-            cameraId,
-            controlId,
-            defaultValue
-        );
-
-        showStatus('Camera setting reset');
-
-        await loadCameraSettings(cameraId);
-
-    } catch (error) {
-        console.error(error);
-        showStatus('Unable to reset camera setting');
-    }
-}
-
-
 function renderAvailableCameras() {
-
     const select = document.getElementById('availableCamera');
     const button = document.getElementById('addLayerButton');
 
@@ -2276,234 +1281,6 @@ def cameras_api():
 
 
 @app.route(
-    "/api/camera-profiles",
-    methods=["GET"],
-)
-def camera_profiles_api():
-    return jsonify({
-        "profiles": _read_camera_profiles(),
-    })
-
-
-@app.route(
-    "/api/camera-profiles",
-    methods=["POST"],
-)
-def save_camera_profile_api():
-    data = request.get_json(silent=True) or {}
-
-    name = str(data.get("name", "")).strip()
-    camera_id = data.get("camera_id")
-
-    if not name:
-        return jsonify({
-            "error": "Profile name is required"
-        }), 400
-
-    if not camera_id:
-        return jsonify({
-            "error": "camera_id is required"
-        }), 400
-
-    device = manager.get_device(camera_id)
-
-    if device is None:
-        return jsonify({
-            "error": "Camera is not open"
-        }), 404
-
-    try:
-        info = manager.get_camera_info(camera_id)
-    except KeyError:
-        return jsonify({
-            "error": "Unknown camera"
-        }), 404
-
-    controls = {}
-
-    for capability in device.get_capabilities():
-        if not capability.writable:
-            continue
-
-        # Camera Profiles v1 only stores controls that can
-        # safely be changed while the camera is already open.
-        if capability.metadata.get(
-            "requires_stream_restart"
-        ):
-            continue
-
-        try:
-            controls[capability.id] = (
-                device.get_control(capability.id)
-            )
-        except Exception:
-            app.logger.exception(
-                "Unable to read camera control %s:%s",
-                camera_id,
-                capability.id,
-            )
-
-    profile = {
-        "name": name,
-        "camera": {
-            "vendor": info.vendor,
-            "model": info.model,
-            "backend": info.backend,
-        },
-        "controls": controls,
-    }
-
-    try:
-        PROFILE_DIR.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
-
-        path = _profile_path(name)
-
-        path.write_text(
-            json.dumps(
-                profile,
-                indent=2,
-                sort_keys=True,
-            ) + "\n"
-        )
-
-    except (OSError, ValueError) as exc:
-        return jsonify({
-            "error": str(exc)
-        }), 400
-
-    return jsonify({
-        "success": True,
-        "profile": profile,
-    })
-
-
-@app.route(
-    "/api/camera-profiles/<path:profile_name>/load",
-    methods=["POST"],
-)
-def load_camera_profile_api(profile_name):
-    data = request.get_json(silent=True) or {}
-    camera_id = data.get("camera_id")
-
-    if not camera_id:
-        return jsonify({
-            "error": "camera_id is required"
-        }), 400
-
-    device = manager.get_device(camera_id)
-
-    if device is None:
-        return jsonify({
-            "error": "Camera is not open"
-        }), 404
-
-    try:
-        profile = json.loads(
-            _profile_path(profile_name).read_text()
-        )
-
-    except FileNotFoundError:
-        return jsonify({
-            "error": "Profile not found"
-        }), 404
-
-    except (OSError, ValueError) as exc:
-        return jsonify({
-            "error": str(exc)
-        }), 400
-
-    capabilities = {
-        capability.id: capability
-        for capability in device.get_capabilities()
-    }
-
-    applied = []
-    skipped = []
-    errors = []
-
-    for control_id, value in (
-        profile.get("controls", {}).items()
-    ):
-        capability = capabilities.get(control_id)
-
-        if capability is None:
-            skipped.append({
-                "control_id": control_id,
-                "reason": "Unsupported by this camera",
-            })
-            continue
-
-        if not capability.writable:
-            skipped.append({
-                "control_id": control_id,
-                "reason": "Read only",
-            })
-            continue
-
-        if capability.metadata.get(
-            "requires_stream_restart"
-        ):
-            skipped.append({
-                "control_id": control_id,
-                "reason": "Requires stream restart",
-            })
-            continue
-
-        try:
-            device.set_control(
-                control_id,
-                value,
-            )
-
-            applied.append(control_id)
-
-        except Exception as exc:
-            errors.append({
-                "control_id": control_id,
-                "error": str(exc),
-            })
-
-    return jsonify({
-        "success": len(errors) == 0,
-        "profile": profile.get(
-            "name",
-            profile_name,
-        ),
-        "applied": applied,
-        "skipped": skipped,
-        "errors": errors,
-    })
-
-
-@app.route(
-    "/api/camera-profiles/<path:profile_name>",
-    methods=["DELETE"],
-)
-def delete_camera_profile_api(profile_name):
-    try:
-        path = _profile_path(profile_name)
-
-        if not path.exists():
-            return jsonify({
-                "error": "Profile not found"
-            }), 404
-
-        path.unlink()
-
-    except (OSError, ValueError) as exc:
-        return jsonify({
-            "error": str(exc)
-        }), 400
-
-    return jsonify({
-        "success": True,
-    })
-
-
-@app.route(
     "/api/cameras/<path:camera_id>/capabilities"
 )
 def camera_capabilities_api(camera_id):
@@ -2552,7 +1329,6 @@ def camera_capabilities_api(camera_id):
             "step": capability.step,
             "choices": capability.choices,
             "units": capability.units,
-            "metadata": capability.metadata,
         })
 
     return jsonify({

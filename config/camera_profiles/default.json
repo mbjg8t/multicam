@@ -1,0 +1,12 @@
+{
+  "camera": {
+    "backend": "picamera2",
+    "model": "ov5647",
+    "vendor": "Raspberry Pi/libcamera"
+  },
+  "controls": {
+    "exposure": 19956,
+    "gain": 2.0
+  },
+  "name": "default"
+}

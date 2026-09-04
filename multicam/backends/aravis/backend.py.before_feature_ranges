@@ -64,14 +64,6 @@ class AravisDevice(CameraDevice):
             float(value),
         )
 
-    def _get_float_bounds(self, name):
-        bounds = self._device.get_float_feature_bounds(name)
-        return float(bounds[0]), float(bounds[1])
-
-    def _get_integer_bounds(self, name):
-        bounds = self._device.get_integer_feature_bounds(name)
-        return int(bounds[0]), int(bounds[1])
-
     def _get_integer_feature(self, name):
         return self._device.get_integer_feature_value(name)
 
@@ -121,7 +113,7 @@ class AravisDevice(CameraDevice):
                 "DeviceGain",
             ),
             "black_level": (
-                self._get_integer_feature,
+                self._get_float_feature,
                 "DeviceBlackLevel",
             ),
             "cooling_enable": (
@@ -258,7 +250,6 @@ class AravisDevice(CameraDevice):
             feature_name=None,
             units=None,
             writable=True,
-            bounds_feature=None,
         ):
             try:
                 value = (
@@ -269,17 +260,6 @@ class AravisDevice(CameraDevice):
             except Exception:
                 return
 
-            minimum = None
-            maximum = None
-
-            if bounds_feature:
-                try:
-                    minimum, maximum = self._get_float_bounds(
-                        bounds_feature
-                    )
-                except Exception:
-                    pass
-
             capabilities.append(
                 CameraCapability(
                     id=control_id,
@@ -288,8 +268,6 @@ class AravisDevice(CameraDevice):
                     readable=True,
                     writable=writable,
                     value=value,
-                    minimum=minimum,
-                    maximum=maximum,
                     units=units,
                     metadata={
                         "session_default":
@@ -329,7 +307,6 @@ class AravisDevice(CameraDevice):
             "Exposure",
             self._camera.get_exposure_time,
             units="us",
-            bounds_feature="ExposureTime",
         )
 
         # Some GenICam cameras expose Gain through the standard Aravis
@@ -375,40 +352,12 @@ class AravisDevice(CameraDevice):
                 pass
 
         # Useful image/sensor controls when the camera exposes them.
-        try:
-            black_level = self._get_integer_feature(
-                "DeviceBlackLevel"
-            )
-
-            black_min, black_max = self._get_integer_bounds(
-                "DeviceBlackLevel"
-            )
-
-            capabilities.append(
-                CameraCapability(
-                    id="black_level",
-                    name="Black Level",
-                    type="integer",
-                    readable=True,
-                    writable=True,
-                    value=black_level,
-                    minimum=black_min,
-                    maximum=black_max,
-                    step=1,
-                    metadata={
-                        # The camera advertises a huge register range.
-                        # Keep manual entry instead of presenting a
-                        # practically useless 0..2^32 slider.
-                        "ui": "manual",
-                        "session_default":
-                            self._session_defaults.get(
-                                "black_level"
-                            ),
-                    },
-                )
-            )
-        except Exception:
-            pass
+        add_float(
+            "black_level",
+            "Black Level",
+            self._get_float_feature,
+            "DeviceBlackLevel",
+        )
 
         add_boolean(
             "cooling_enable",
@@ -422,7 +371,6 @@ class AravisDevice(CameraDevice):
             self._get_float_feature,
             "CoolingTargetTemperature",
             units="C",
-            bounds_feature="CoolingTargetTemperature",
         )
 
         add_boolean(
@@ -498,7 +446,7 @@ class AravisDevice(CameraDevice):
                 return self._camera.get_gain()
 
         if control_id == "black_level":
-            return self._get_integer_feature("DeviceBlackLevel")
+            return self._get_float_feature("DeviceBlackLevel")
 
         if control_id == "cooling_enable":
             return self._get_boolean_feature("CoolingEnable")
@@ -545,7 +493,7 @@ class AravisDevice(CameraDevice):
             return
 
         if control_id == "black_level":
-            self._set_integer_feature(
+            self._set_float_feature(
                 "DeviceBlackLevel",
                 value,
             )

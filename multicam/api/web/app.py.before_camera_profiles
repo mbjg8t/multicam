@@ -4,8 +4,6 @@ import logging
 
 import io
 import time
-import json
-import re
 
 from flask import Flask, Response, jsonify, request
 from PIL import Image
@@ -56,58 +54,6 @@ provisioning_service = CameraProvisioningService(
         config_path=pi_config_path,
     ),
 )
-
-
-
-PROFILE_DIR = (
-    Path(__file__).resolve().parents[3]
-    / "config"
-    / "camera_profiles"
-)
-
-
-def _profile_filename(name: str) -> str:
-    safe = re.sub(
-        r"[^A-Za-z0-9._ -]+",
-        "_",
-        name.strip(),
-    ).strip(" .")
-
-    if not safe:
-        raise ValueError("Profile name is required")
-
-    return safe + ".json"
-
-
-def _profile_path(name: str) -> Path:
-    return PROFILE_DIR / _profile_filename(name)
-
-
-def _read_camera_profiles():
-    PROFILE_DIR.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    profiles = []
-
-    for path in sorted(PROFILE_DIR.glob("*.json")):
-        try:
-            data = json.loads(path.read_text())
-
-            profiles.append({
-                "name": data.get("name", path.stem),
-                "camera": data.get("camera", {}),
-                "controls": data.get("controls", {}),
-            })
-
-        except Exception:
-            app.logger.exception(
-                "Unable to read camera profile %s",
-                path,
-            )
-
-    return profiles
 
 
 def initialize():
@@ -512,30 +458,6 @@ def cameras_page():
 
         .camera-settings {
             padding: 12px 4px 6px 4px;
-        }
-
-        .camera-profile-bar {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin: 0 0 16px 0;
-            padding-bottom: 12px;
-            border-bottom: 1px solid #444;
-        }
-
-        .camera-profile-bar label {
-            color: #ccc;
-            white-space: nowrap;
-        }
-
-        .camera-profile-bar select {
-            min-width: 180px;
-        }
-
-        .camera-profile-bar button {
-            width: auto;
-            min-width: 64px;
-            padding: 6px 10px;
         }
 
         .settings-section {
@@ -1397,9 +1319,7 @@ function cameraNumericControl(
                     '${escapeJs(cameraId)}',
                     '${escapeJs(capability.id)}',
                     this.value,
-                    ${spec.minimum},
-                    ${spec.maximum},
-                    ${spec.useLog ? 'true' : 'false'}
+                    ${JSON.stringify(spec)}
                 )"
             >
         `;
@@ -1569,207 +1489,6 @@ function cameraReadonlyControl(
 }
 
 
-function cameraProfileSelectId(cameraId) {
-    return (
-        'camera-profile-' +
-        encodeURIComponent(cameraId)
-    );
-}
-
-
-function cameraProfileBar(cameraId, profiles) {
-    const selectId = cameraProfileSelectId(cameraId);
-
-    let options = `
-        <option value="">Select profile...</option>
-    `;
-
-    for (const profile of profiles) {
-        options += `
-            <option value="${escapeHtml(profile.name)}">
-                ${escapeHtml(profile.name)}
-            </option>
-        `;
-    }
-
-    return `
-        <div class="camera-profile-bar">
-            <label for="${selectId}">
-                Profile:
-            </label>
-
-            <select id="${selectId}">
-                ${options}
-            </select>
-
-            <button onclick="loadCameraProfile(
-                '${escapeJs(cameraId)}'
-            )">
-                Load
-            </button>
-
-            <button onclick="saveCameraProfile(
-                '${escapeJs(cameraId)}'
-            )">
-                Save As...
-            </button>
-
-            <button onclick="deleteCameraProfile(
-                '${escapeJs(cameraId)}'
-            )">
-                Delete
-            </button>
-        </div>
-    `;
-}
-
-
-function selectedCameraProfile(cameraId) {
-    const select = document.getElementById(
-        cameraProfileSelectId(cameraId)
-    );
-
-    if (!select) {
-        return '';
-    }
-
-    return select.value;
-}
-
-
-async function saveCameraProfile(cameraId) {
-    const name = window.prompt(
-        'Camera profile name:'
-    );
-
-    if (!name || !name.trim()) {
-        return;
-    }
-
-    try {
-        const result = await api(
-            '/api/camera-profiles',
-            {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    name: name.trim(),
-                    camera_id: cameraId
-                })
-            }
-        );
-
-        await loadCameraSettings(cameraId);
-
-        const select = document.getElementById(
-            cameraProfileSelectId(cameraId)
-        );
-
-        if (select && result.profile) {
-            select.value = result.profile.name;
-        }
-
-    } catch (error) {
-        window.alert(
-            'Unable to save camera profile: ' +
-            error.message
-        );
-    }
-}
-
-
-async function loadCameraProfile(cameraId) {
-    const profileName = selectedCameraProfile(cameraId);
-
-    if (!profileName) {
-        window.alert('Select a profile first.');
-        return;
-    }
-
-    try {
-        const result = await api(
-            '/api/camera-profiles/' +
-            encodeURIComponent(profileName) +
-            '/load',
-            {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    camera_id: cameraId
-                })
-            }
-        );
-
-        await loadCameraSettings(cameraId);
-
-        const select = document.getElementById(
-            cameraProfileSelectId(cameraId)
-        );
-
-        if (select) {
-            select.value = profileName;
-        }
-
-        if (
-            result.errors &&
-            result.errors.length > 0
-        ) {
-            window.alert(
-                'Profile loaded with ' +
-                result.errors.length +
-                ' control error(s).'
-            );
-        }
-
-    } catch (error) {
-        window.alert(
-            'Unable to load camera profile: ' +
-            error.message
-        );
-    }
-}
-
-
-async function deleteCameraProfile(cameraId) {
-    const profileName = selectedCameraProfile(cameraId);
-
-    if (!profileName) {
-        window.alert('Select a profile first.');
-        return;
-    }
-
-    if (!window.confirm(
-        'Delete camera profile "' +
-        profileName +
-        '"?'
-    )) {
-        return;
-    }
-
-    try {
-        await api(
-            '/api/camera-profiles/' +
-            encodeURIComponent(profileName),
-            {
-                method: 'DELETE'
-            }
-        );
-
-        await loadCameraSettings(cameraId);
-
-    } catch (error) {
-        window.alert(
-            'Unable to delete camera profile: ' +
-            error.message
-        );
-    }
-}
-
-
 async function loadCameraSettings(cameraId) {
     const panel = document.getElementById(
         'settings-' + encodeURIComponent(cameraId)
@@ -1828,26 +1547,7 @@ async function loadCameraSettings(cameraId) {
             sections[section].push(capability);
         }
 
-        let profiles = [];
-
-        try {
-            const profileData = await api(
-                '/api/camera-profiles'
-            );
-
-            profiles = profileData.profiles || [];
-
-        } catch (error) {
-            console.error(
-                'Unable to load camera profiles:',
-                error
-            );
-        }
-
-        let html = cameraProfileBar(
-            cameraId,
-            profiles
-        );
+        let html = '';
 
         for (const [sectionName, capabilities] of
             Object.entries(sections)) {
@@ -1913,16 +1613,8 @@ function cameraSliderChanged(
     cameraId,
     controlId,
     sliderValue,
-    minimum,
-    maximum,
-    useLog
+    spec
 ) {
-    const spec = {
-        minimum: Number(minimum),
-        maximum: Number(maximum),
-        useLog: Boolean(useLog)
-    };
-
     const value = sliderToValue(
         sliderValue,
         spec
@@ -2273,234 +1965,6 @@ def cameras_api():
         }
         for c in manager.list_cameras()
     ])
-
-
-@app.route(
-    "/api/camera-profiles",
-    methods=["GET"],
-)
-def camera_profiles_api():
-    return jsonify({
-        "profiles": _read_camera_profiles(),
-    })
-
-
-@app.route(
-    "/api/camera-profiles",
-    methods=["POST"],
-)
-def save_camera_profile_api():
-    data = request.get_json(silent=True) or {}
-
-    name = str(data.get("name", "")).strip()
-    camera_id = data.get("camera_id")
-
-    if not name:
-        return jsonify({
-            "error": "Profile name is required"
-        }), 400
-
-    if not camera_id:
-        return jsonify({
-            "error": "camera_id is required"
-        }), 400
-
-    device = manager.get_device(camera_id)
-
-    if device is None:
-        return jsonify({
-            "error": "Camera is not open"
-        }), 404
-
-    try:
-        info = manager.get_camera_info(camera_id)
-    except KeyError:
-        return jsonify({
-            "error": "Unknown camera"
-        }), 404
-
-    controls = {}
-
-    for capability in device.get_capabilities():
-        if not capability.writable:
-            continue
-
-        # Camera Profiles v1 only stores controls that can
-        # safely be changed while the camera is already open.
-        if capability.metadata.get(
-            "requires_stream_restart"
-        ):
-            continue
-
-        try:
-            controls[capability.id] = (
-                device.get_control(capability.id)
-            )
-        except Exception:
-            app.logger.exception(
-                "Unable to read camera control %s:%s",
-                camera_id,
-                capability.id,
-            )
-
-    profile = {
-        "name": name,
-        "camera": {
-            "vendor": info.vendor,
-            "model": info.model,
-            "backend": info.backend,
-        },
-        "controls": controls,
-    }
-
-    try:
-        PROFILE_DIR.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
-
-        path = _profile_path(name)
-
-        path.write_text(
-            json.dumps(
-                profile,
-                indent=2,
-                sort_keys=True,
-            ) + "\n"
-        )
-
-    except (OSError, ValueError) as exc:
-        return jsonify({
-            "error": str(exc)
-        }), 400
-
-    return jsonify({
-        "success": True,
-        "profile": profile,
-    })
-
-
-@app.route(
-    "/api/camera-profiles/<path:profile_name>/load",
-    methods=["POST"],
-)
-def load_camera_profile_api(profile_name):
-    data = request.get_json(silent=True) or {}
-    camera_id = data.get("camera_id")
-
-    if not camera_id:
-        return jsonify({
-            "error": "camera_id is required"
-        }), 400
-
-    device = manager.get_device(camera_id)
-
-    if device is None:
-        return jsonify({
-            "error": "Camera is not open"
-        }), 404
-
-    try:
-        profile = json.loads(
-            _profile_path(profile_name).read_text()
-        )
-
-    except FileNotFoundError:
-        return jsonify({
-            "error": "Profile not found"
-        }), 404
-
-    except (OSError, ValueError) as exc:
-        return jsonify({
-            "error": str(exc)
-        }), 400
-
-    capabilities = {
-        capability.id: capability
-        for capability in device.get_capabilities()
-    }
-
-    applied = []
-    skipped = []
-    errors = []
-
-    for control_id, value in (
-        profile.get("controls", {}).items()
-    ):
-        capability = capabilities.get(control_id)
-
-        if capability is None:
-            skipped.append({
-                "control_id": control_id,
-                "reason": "Unsupported by this camera",
-            })
-            continue
-
-        if not capability.writable:
-            skipped.append({
-                "control_id": control_id,
-                "reason": "Read only",
-            })
-            continue
-
-        if capability.metadata.get(
-            "requires_stream_restart"
-        ):
-            skipped.append({
-                "control_id": control_id,
-                "reason": "Requires stream restart",
-            })
-            continue
-
-        try:
-            device.set_control(
-                control_id,
-                value,
-            )
-
-            applied.append(control_id)
-
-        except Exception as exc:
-            errors.append({
-                "control_id": control_id,
-                "error": str(exc),
-            })
-
-    return jsonify({
-        "success": len(errors) == 0,
-        "profile": profile.get(
-            "name",
-            profile_name,
-        ),
-        "applied": applied,
-        "skipped": skipped,
-        "errors": errors,
-    })
-
-
-@app.route(
-    "/api/camera-profiles/<path:profile_name>",
-    methods=["DELETE"],
-)
-def delete_camera_profile_api(profile_name):
-    try:
-        path = _profile_path(profile_name)
-
-        if not path.exists():
-            return jsonify({
-                "error": "Profile not found"
-            }), 404
-
-        path.unlink()
-
-    except (OSError, ValueError) as exc:
-        return jsonify({
-            "error": str(exc)
-        }), 400
-
-    return jsonify({
-        "success": True,
-    })
 
 
 @app.route(
