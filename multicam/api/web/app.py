@@ -11,8 +11,10 @@ from PIL import Image
 from multicam.backends.aravis import AravisBackend
 from multicam.backends.picamera2 import Picamera2Backend
 from multicam.core.cameras import CameraManager, FrameBroker
+from multicam.core.provisioning import CameraProvisioningService
 from multicam.core.services import LiveViewService
 from multicam.core.state import CameraLayer, ViewStateStore
+from multicam.platforms.raspberry_pi import RaspberryPiCameraProvisioner
 
 
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
@@ -30,6 +32,11 @@ service = LiveViewService(
     manager=manager,
     broker=broker,
     state=state,
+)
+
+provisioning_service = CameraProvisioningService(
+    manager=manager,
+    provisioner=RaspberryPiCameraProvisioner(),
 )
 
 
@@ -82,6 +89,50 @@ def serialize_state():
                 },
             }
             for layer in current.layers
+        ],
+    }
+
+
+def serialize_provisioning():
+    snapshot = provisioning_service.inspect()
+
+    return {
+        "platform": snapshot.platform,
+        "platform_model": snapshot.platform_model,
+        "camera_auto_detect": snapshot.camera_auto_detect,
+        "pending_changes": snapshot.pending_changes,
+        "reboot_required": snapshot.reboot_required,
+        "errors": snapshot.errors,
+        "entries": [
+            {
+                "status": entry.status.value,
+                "message": entry.message,
+                "runtime": (
+                    {
+                        "runtime_id": entry.runtime.runtime_id,
+                        "backend": entry.runtime.backend,
+                        "name": entry.runtime.name,
+                        "model": entry.runtime.model,
+                        "connected": entry.runtime.connected,
+                        "runtime_number": entry.runtime.runtime_number,
+                        "runtime_path": entry.runtime.runtime_path,
+                        "rotation": entry.runtime.rotation,
+                    }
+                    if entry.runtime is not None
+                    else None
+                ),
+                "configured": (
+                    {
+                        "overlay": entry.configured.overlay,
+                        "parameters": entry.configured.parameters,
+                        "port_hint": entry.configured.port_hint,
+                        "line_number": entry.configured.line_number,
+                    }
+                    if entry.configured is not None
+                    else None
+                ),
+            }
+            for entry in snapshot.entries
         ],
     }
 
@@ -313,6 +364,17 @@ def cameras_page():
 <h2>Cameras</h2>
 
 <div class="section">
+    <div class="row">
+        <strong>Hardware Configuration</strong>
+        <span class="spacer"></span>
+        <button onclick="refreshHardware()">Refresh</button>
+    </div>
+
+    <div id="hardwareSummary" class="camera-info"></div>
+    <div id="hardwareList"></div>
+</div>
+
+<div class="section">
     <strong>Camera Layers</strong>
     <div id="layerList"></div>
 </div>
@@ -340,6 +402,7 @@ def cameras_page():
 let cameras = [];
 let streams = [];
 let viewState = null;
+let hardwareState = null;
 
 
 async function api(url, options = {}) {
@@ -355,14 +418,110 @@ async function api(url, options = {}) {
 
 
 async function refresh() {
-    [cameras, streams, viewState] = await Promise.all([
+    [cameras, streams, viewState, hardwareState] = await Promise.all([
         api('/api/cameras'),
         api('/api/streams'),
-        api('/api/state')
+        api('/api/state'),
+        api('/api/hardware')
     ]);
 
+    renderHardware();
     renderLayers();
     renderAvailableCameras();
+}
+
+
+async function refreshHardware() {
+    hardwareState = await api('/api/hardware');
+    renderHardware();
+}
+
+
+function hardwareStatusClass(status) {
+    return status === 'ready' ? 'stream-ok' : 'stream-error';
+}
+
+
+function renderHardware() {
+    const summary = document.getElementById('hardwareSummary');
+    const container = document.getElementById('hardwareList');
+
+    if (!hardwareState) {
+        summary.textContent = 'Hardware status unavailable';
+        container.innerHTML = '';
+        return;
+    }
+
+    const autoDetect =
+        hardwareState.camera_auto_detect === null
+            ? 'Unknown'
+            : (hardwareState.camera_auto_detect ? 'On' : 'Off');
+
+    summary.textContent =
+        `${hardwareState.platform_model || hardwareState.platform} | ` +
+        `Auto detect: ${autoDetect} | ` +
+        `Reboot required: ${hardwareState.reboot_required ? 'Yes' : 'No'}`;
+
+    container.innerHTML = '';
+
+    if (hardwareState.entries.length === 0) {
+        container.innerHTML =
+            '<div class="empty">No provisioned CSI cameras detected</div>';
+        return;
+    }
+
+    hardwareState.entries.forEach(entry => {
+        const div = document.createElement('div');
+        div.className = 'layer';
+
+        const runtime = entry.runtime;
+        const configured = entry.configured;
+
+        const runtimeName = runtime
+            ? `${runtime.name} [${runtime.backend}]`
+            : 'No runtime camera';
+
+        const overlayText = configured
+            ? configured.overlay
+            : 'No explicit camera overlay';
+
+        const portText =
+            configured && configured.port_hint
+                ? configured.port_hint
+                : 'not explicitly assigned';
+
+        const pathText =
+            runtime && runtime.runtime_path
+                ? runtime.runtime_path
+                : '';
+
+        div.innerHTML = `
+            <div class="layer-title">
+                <strong>${escapeHtml(runtimeName)}</strong>
+                <span class="${hardwareStatusClass(entry.status)}">
+                    ${escapeHtml(entry.status.toUpperCase())}
+                </span>
+            </div>
+
+            <div class="camera-info">
+                Boot overlay: ${escapeHtml(overlayText)}
+                | Port hint: ${escapeHtml(portText)}
+            </div>
+
+            <div class="camera-info">
+                ${escapeHtml(pathText)}
+            </div>
+        `;
+
+        container.appendChild(div);
+    });
+
+    if (hardwareState.errors.length > 0) {
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'camera-info stream-error';
+        errorDiv.textContent = hardwareState.errors.join(' | ');
+        container.appendChild(errorDiv);
+    }
 }
 
 
@@ -678,6 +837,11 @@ def cameras_api():
 @app.route("/api/state")
 def state_api():
     return jsonify(serialize_state())
+
+
+@app.route("/api/hardware")
+def hardware_api():
+    return jsonify(serialize_provisioning())
 
 
 @app.route("/api/layers", methods=["POST"])
