@@ -4,7 +4,11 @@ from abc import ABC, abstractmethod
 
 from multicam.core.cameras import CameraManager
 
-from .model import ProvisioningSnapshot
+from .model import (
+    ProvisioningApplyResult,
+    ProvisioningChange,
+    ProvisioningSnapshot,
+)
 
 
 class CameraProvisioner(ABC):
@@ -20,6 +24,15 @@ class CameraProvisioner(ABC):
     @abstractmethod
     def inspect(self, manager: CameraManager) -> ProvisioningSnapshot:
         raise NotImplementedError
+
+    def apply(
+        self,
+        manager: CameraManager,
+        changes: list[ProvisioningChange],
+    ) -> ProvisioningApplyResult:
+        raise NotImplementedError(
+            "This platform provisioner does not support configuration writes."
+        )
 
 
 class CameraProvisioningService:
@@ -40,3 +53,12 @@ class CameraProvisioningService:
 
     def inspect(self) -> ProvisioningSnapshot:
         return self._provisioner.inspect(self._manager)
+
+    def apply(
+        self,
+        changes: list[ProvisioningChange],
+    ) -> ProvisioningApplyResult:
+        return self._provisioner.apply(
+            self._manager,
+            changes,
+        )

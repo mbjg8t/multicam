@@ -431,3 +431,181 @@ def test_missing_runtime_camera_does_not_propose_removing_config(
     assert snapshot.proposed_changes == []
     assert snapshot.pending_changes is False
     assert snapshot.reboot_required is False
+
+
+def test_apply_add_overlay_creates_backup_and_writes_config(
+    tmp_path: Path,
+):
+    from multicam.core.provisioning import ProvisioningChange
+
+    config = tmp_path / "config.txt"
+    model = tmp_path / "model"
+
+    original = (
+        "camera_auto_detect=0\n"
+        "dtoverlay=vc4-kms-v3d\n"
+        "dtoverlay=ov64a40\n"
+    )
+
+    config.write_text(original)
+    model.write_text("Raspberry Pi 5")
+
+    provisioner = RaspberryPiCameraProvisioner(
+        config_path=config,
+        model_path=model,
+    )
+
+    change = ProvisioningChange(
+        action="add_overlay",
+        description="Add camera overlay for ov5647.",
+        overlay="ov5647",
+        reboot_required=True,
+    )
+
+    manager = CameraManager()
+
+    result = provisioner.apply(manager, [change])
+
+    assert result.success is True
+    assert result.applied_changes == [change]
+    assert result.skipped_changes == []
+    assert result.reboot_required is True
+    assert result.backup_path is not None
+    assert result.errors == []
+
+    backup = Path(result.backup_path)
+
+    assert backup.exists()
+    assert backup.read_text() == original
+
+    updated = config.read_text()
+
+    assert "dtoverlay=ov64a40\n" in updated
+    assert "dtoverlay=ov5647\n" in updated
+
+    # Critical safety rule: no physical port is invented.
+    assert "dtoverlay=ov5647,cam0" not in updated
+    assert "dtoverlay=ov5647,cam1" not in updated
+
+
+def test_apply_existing_overlay_is_idempotent(
+    tmp_path: Path,
+):
+    from multicam.core.provisioning import ProvisioningChange
+
+    config = tmp_path / "config.txt"
+    model = tmp_path / "model"
+
+    original = (
+        "camera_auto_detect=0\n"
+        "dtoverlay=ov5647,cam0\n"
+    )
+
+    config.write_text(original)
+    model.write_text("Raspberry Pi 5")
+
+    provisioner = RaspberryPiCameraProvisioner(
+        config_path=config,
+        model_path=model,
+    )
+
+    change = ProvisioningChange(
+        action="add_overlay",
+        description="Add camera overlay for ov5647.",
+        overlay="ov5647",
+        reboot_required=True,
+    )
+
+    result = provisioner.apply(
+        CameraManager(),
+        [change],
+    )
+
+    assert result.success is True
+    assert result.applied_changes == []
+    assert result.skipped_changes == [change]
+    assert result.backup_path is None
+    assert result.reboot_required is False
+
+    assert config.read_text() == original
+
+
+def test_apply_rejects_unsupported_action_without_writing(
+    tmp_path: Path,
+):
+    from multicam.core.provisioning import ProvisioningChange
+
+    config = tmp_path / "config.txt"
+    model = tmp_path / "model"
+
+    original = "camera_auto_detect=0\n"
+
+    config.write_text(original)
+    model.write_text("Raspberry Pi 5")
+
+    provisioner = RaspberryPiCameraProvisioner(
+        config_path=config,
+        model_path=model,
+    )
+
+    change = ProvisioningChange(
+        action="remove_overlay",
+        description="Do not support this yet.",
+        overlay="ov5647",
+    )
+
+    result = provisioner.apply(
+        CameraManager(),
+        [change],
+    )
+
+    assert result.success is False
+    assert result.applied_changes == []
+    assert result.backup_path is None
+    assert result.errors
+
+    assert config.read_text() == original
+
+
+def test_service_apply_delegates_to_pi_provisioner(
+    tmp_path: Path,
+):
+    from multicam.core.provisioning import (
+        CameraProvisioningService,
+        ProvisioningChange,
+    )
+
+    config = tmp_path / "config.txt"
+    model = tmp_path / "model"
+
+    config.write_text(
+        "camera_auto_detect=0\n"
+        "dtoverlay=ov64a40\n"
+    )
+    model.write_text("Raspberry Pi 5")
+
+    manager = CameraManager()
+
+    service = CameraProvisioningService(
+        manager=manager,
+        provisioner=RaspberryPiCameraProvisioner(
+            config_path=config,
+            model_path=model,
+        ),
+    )
+
+    change = ProvisioningChange(
+        action="add_overlay",
+        description="Add camera overlay for ov5647.",
+        overlay="ov5647",
+        reboot_required=True,
+    )
+
+    result = service.apply([change])
+
+    assert result.success is True
+    assert result.applied_changes == [change]
+    assert result.reboot_required is True
+    assert result.backup_path is not None
+
+    assert "dtoverlay=ov5647\n" in config.read_text()

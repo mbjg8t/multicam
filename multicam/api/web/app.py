@@ -15,6 +15,8 @@ from multicam.core.provisioning import CameraProvisioningService
 from multicam.core.services import LiveViewService
 from multicam.core.state import CameraLayer, ViewStateStore
 from multicam.platforms.raspberry_pi import RaspberryPiCameraProvisioner
+import os
+from pathlib import Path
 
 
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
@@ -34,9 +36,23 @@ service = LiveViewService(
     state=state,
 )
 
+pi_config_path = os.environ.get(
+    "MULTICAM_PI_CONFIG",
+    "/boot/firmware/config.txt",
+)
+
+provisioning_apply_enabled = (
+    os.environ.get("MULTICAM_ALLOW_PROVISIONING_WRITE") == "1"
+    and "MULTICAM_PI_CONFIG" in os.environ
+    and Path(pi_config_path).resolve()
+        != Path("/boot/firmware/config.txt").resolve()
+)
+
 provisioning_service = CameraProvisioningService(
     manager=manager,
-    provisioner=RaspberryPiCameraProvisioner(),
+    provisioner=RaspberryPiCameraProvisioner(
+        config_path=pi_config_path,
+    ),
 )
 
 
@@ -46,16 +62,31 @@ def initialize():
     if not cameras:
         raise RuntimeError("No cameras discovered")
 
+    opened = []
+
     for info in cameras:
-        device = manager.open(info.id)
-        broker.add_camera(device)
+        try:
+            device = manager.open(info.id)
+            broker.add_camera(device)
+            opened.append(info)
+        except Exception:
+            app.logger.exception(
+                "Unable to open camera %s [%s]",
+                info.name,
+                info.backend,
+            )
+
+    if not opened:
+        raise RuntimeError(
+            "Cameras were discovered, but none could be opened"
+        )
 
     # Temporary startup default only. Until camera role/user metadata is
     # persisted, Picamera2 is our best available indication of the visible
-    # camera. If none exists, use the first discovered camera.
+    # camera. If none exists, use the first successfully opened camera.
     visible = next(
-        (c for c in cameras if c.backend == "picamera2"),
-        cameras[0],
+        (c for c in opened if c.backend == "picamera2"),
+        opened[0],
     )
 
     state.add_layer(
@@ -102,6 +133,7 @@ def serialize_provisioning():
         "camera_auto_detect": snapshot.camera_auto_detect,
         "pending_changes": snapshot.pending_changes,
         "reboot_required": snapshot.reboot_required,
+        "apply_enabled": provisioning_apply_enabled,
         "errors": snapshot.errors,
         "proposed_changes": [
             {
@@ -384,8 +416,19 @@ def cameras_page():
     <div id="hardwareList"></div>
 
     <div style="margin-top: 12px;">
-        <strong>Proposed Configuration</strong>
+        <div class="row">
+            <strong>Proposed Configuration</strong>
+            <span class="spacer"></span>
+            <button
+                id="hardwareApplyButton"
+                onclick="applyHardwareConfiguration()"
+                disabled
+            >
+                Apply Configuration
+            </button>
+        </div>
         <div id="hardwareProposed" class="camera-info"></div>
+        <div id="hardwareApplyResult" class="camera-info"></div>
     </div>
 </div>
 
@@ -452,6 +495,65 @@ async function refreshHardware() {
 }
 
 
+async function applyHardwareConfiguration() {
+    const button = document.getElementById(
+        'hardwareApplyButton'
+    );
+    const resultDiv = document.getElementById(
+        'hardwareApplyResult'
+    );
+
+    button.disabled = true;
+    resultDiv.textContent = 'Applying configuration...';
+
+    try {
+        const response = await fetch('/api/hardware/apply', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+            const errors = result.errors || [];
+            throw new Error(
+                result.error ||
+                errors.join(' | ') ||
+                'Configuration apply failed'
+            );
+        }
+
+        let message = 'Configuration applied.';
+
+        if (result.backup_path) {
+            message += ` Backup: ${result.backup_path}.`;
+        }
+
+        if (result.reboot_required) {
+            message += ' Reboot required.';
+        }
+
+        resultDiv.className = 'camera-info stream-ok';
+        resultDiv.textContent = message;
+
+        hardwareState = await api('/api/hardware');
+        renderHardware();
+
+        // renderHardware clears/rebuilds the hardware presentation,
+        // so restore the operation result afterward.
+        resultDiv.className = 'camera-info stream-ok';
+        resultDiv.textContent = message;
+    } catch (error) {
+        resultDiv.className = 'camera-info stream-error';
+        resultDiv.textContent = error.message;
+
+        await refreshHardware();
+    }
+}
+
+
 function hardwareStatusClass(status) {
     return status === 'ready' ? 'stream-ok' : 'stream-error';
 }
@@ -461,6 +563,9 @@ function renderHardware() {
     const summary = document.getElementById('hardwareSummary');
     const container = document.getElementById('hardwareList');
     const proposed = document.getElementById('hardwareProposed');
+    const applyButton = document.getElementById(
+        'hardwareApplyButton'
+    );
 
     if (!hardwareState) {
         summary.textContent = 'Hardware status unavailable';
@@ -542,6 +647,15 @@ function renderHardware() {
     }
 
     const changes = hardwareState.proposed_changes || [];
+
+    applyButton.disabled = !(
+        hardwareState.apply_enabled &&
+        changes.length > 0
+    );
+
+    applyButton.title = hardwareState.apply_enabled
+        ? ''
+        : 'Provisioning writes are disabled for this startup.';
 
     if (changes.length === 0) {
         proposed.textContent = 'No configuration changes proposed.';
@@ -899,6 +1013,62 @@ def state_api():
 @app.route("/api/hardware")
 def hardware_api():
     return jsonify(serialize_provisioning())
+
+
+@app.route("/api/hardware/apply", methods=["POST"])
+def hardware_apply_api():
+    if not provisioning_apply_enabled:
+        return jsonify({
+            "success": False,
+            "error": (
+                "Provisioning writes are disabled. "
+                "Test writes require an alternate MULTICAM_PI_CONFIG "
+                "and MULTICAM_ALLOW_PROVISIONING_WRITE=1."
+            ),
+        }), 403
+
+    snapshot = provisioning_service.inspect()
+
+    if not snapshot.proposed_changes:
+        return jsonify({
+            "success": True,
+            "applied_changes": [],
+            "skipped_changes": [],
+            "backup_path": None,
+            "reboot_required": False,
+            "errors": [],
+        })
+
+    result = provisioning_service.apply(
+        snapshot.proposed_changes
+    )
+
+    return jsonify({
+        "success": result.success,
+        "applied_changes": [
+            {
+                "action": change.action,
+                "description": change.description,
+                "overlay": change.overlay,
+                "parameters": change.parameters,
+                "reboot_required": change.reboot_required,
+            }
+            for change in result.applied_changes
+        ],
+        "skipped_changes": [
+            {
+                "action": change.action,
+                "description": change.description,
+                "overlay": change.overlay,
+                "parameters": change.parameters,
+                "reboot_required": change.reboot_required,
+            }
+            for change in result.skipped_changes
+        ],
+        "backup_path": result.backup_path,
+        "reboot_required": result.reboot_required,
+        "errors": result.errors,
+    }), (200 if result.success else 500)
 
 
 @app.route("/api/layers", methods=["POST"])

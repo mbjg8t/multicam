@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shutil
+from datetime import datetime
 
 from multicam.core.cameras import CameraInfo, CameraManager
 from multicam.core.provisioning import (
     CameraProvisioner,
     CameraProvisioningEntry,
     ConfiguredCamera,
+    ProvisioningApplyResult,
     ProvisioningChange,
     ProvisioningSnapshot,
     ProvisioningStatus,
@@ -82,6 +85,213 @@ class RaspberryPiCameraProvisioner(CameraProvisioner):
             pending_changes=bool(proposed_changes),
             errors=errors,
         )
+
+    def apply(
+        self,
+        manager: CameraManager,
+        changes: list[ProvisioningChange],
+    ) -> ProvisioningApplyResult:
+        """
+        Apply explicitly requested Raspberry Pi camera configuration changes.
+
+        Current safety limits:
+          - only add_overlay is supported
+          - existing overlays are never removed
+          - port assignments are never inferred
+          - a backup is created before modification
+          - resulting configuration is verified after writing
+          - reboot is never performed here
+        """
+
+        del manager  # Reserved for future validation against runtime hardware.
+
+        if not changes:
+            return ProvisioningApplyResult(
+                success=True,
+                reboot_required=False,
+            )
+
+        unsupported = [
+            change
+            for change in changes
+            if change.action != "add_overlay"
+        ]
+
+        if unsupported:
+            actions = ", ".join(
+                sorted({change.action for change in unsupported})
+            )
+
+            return ProvisioningApplyResult(
+                success=False,
+                errors=[
+                    f"Unsupported provisioning action(s): {actions}"
+                ],
+            )
+
+        try:
+            original_text = self.config_path.read_text()
+        except Exception as exc:
+            return ProvisioningApplyResult(
+                success=False,
+                errors=[
+                    f"Unable to read {self.config_path}: {exc}"
+                ],
+            )
+
+        existing_overlays = self._active_overlay_names(original_text)
+
+        applied: list[ProvisioningChange] = []
+        skipped: list[ProvisioningChange] = []
+        lines_to_add: list[str] = []
+
+        for change in changes:
+            if not change.overlay:
+                return ProvisioningApplyResult(
+                    success=False,
+                    errors=[
+                        "add_overlay change is missing an overlay name."
+                    ],
+                )
+
+            overlay_name = change.overlay.strip()
+
+            if not overlay_name:
+                return ProvisioningApplyResult(
+                    success=False,
+                    errors=[
+                        "add_overlay change has an empty overlay name."
+                    ],
+                )
+
+            if overlay_name.lower() in existing_overlays:
+                skipped.append(change)
+                continue
+
+            parts = [f"dtoverlay={overlay_name}"]
+
+            for key, value in change.parameters.items():
+                if value is True:
+                    parts.append(str(key))
+                else:
+                    parts.append(f"{key}={value}")
+
+            lines_to_add.append(",".join(parts))
+            existing_overlays.add(overlay_name.lower())
+            applied.append(change)
+
+        if not applied:
+            return ProvisioningApplyResult(
+                success=True,
+                skipped_changes=skipped,
+                reboot_required=False,
+            )
+
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        backup_path = self.config_path.with_name(
+            f"{self.config_path.name}.multicam-{timestamp}.bak"
+        )
+
+        try:
+            shutil.copy2(self.config_path, backup_path)
+        except Exception as exc:
+            return ProvisioningApplyResult(
+                success=False,
+                errors=[
+                    f"Unable to create backup {backup_path}: {exc}"
+                ],
+            )
+
+        updated_text = original_text
+
+        if updated_text and not updated_text.endswith("\n"):
+            updated_text += "\n"
+
+        updated_text += "\n".join(lines_to_add) + "\n"
+
+        try:
+            self.config_path.write_text(updated_text)
+        except Exception as exc:
+            return ProvisioningApplyResult(
+                success=False,
+                backup_path=str(backup_path),
+                errors=[
+                    f"Unable to write {self.config_path}: {exc}"
+                ],
+            )
+
+        try:
+            verified_text = self.config_path.read_text()
+            verified_overlays = self._active_overlay_names(
+                verified_text
+            )
+        except Exception as exc:
+            return ProvisioningApplyResult(
+                success=False,
+                applied_changes=applied,
+                skipped_changes=skipped,
+                backup_path=str(backup_path),
+                errors=[
+                    f"Unable to verify {self.config_path}: {exc}"
+                ],
+            )
+
+        missing = [
+            change.overlay
+            for change in applied
+            if (
+                change.overlay is not None
+                and change.overlay.lower() not in verified_overlays
+            )
+        ]
+
+        if missing:
+            return ProvisioningApplyResult(
+                success=False,
+                applied_changes=applied,
+                skipped_changes=skipped,
+                backup_path=str(backup_path),
+                errors=[
+                    "Configuration verification failed for overlay(s): "
+                    + ", ".join(missing)
+                ],
+            )
+
+        return ProvisioningApplyResult(
+            success=True,
+            applied_changes=applied,
+            skipped_changes=skipped,
+            backup_path=str(backup_path),
+            reboot_required=any(
+                change.reboot_required
+                for change in applied
+            ),
+        )
+
+    @staticmethod
+    def _active_overlay_names(text: str) -> set[str]:
+        names: set[str] = set()
+
+        for original_line in text.splitlines():
+            line = original_line.strip()
+
+            if not line or line.startswith("#"):
+                continue
+
+            if not line.startswith("dtoverlay="):
+                continue
+
+            value = line.split("=", 1)[1].strip()
+
+            if not value:
+                continue
+
+            name = value.split(",", 1)[0].strip()
+
+            if name:
+                names.add(name.lower())
+
+        return names
 
     def _read_platform_model(
         self,

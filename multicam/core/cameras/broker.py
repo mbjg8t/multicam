@@ -142,7 +142,15 @@ class FrameBroker:
 
     def get_state(self, camera_id: str) -> CameraStreamState:
         with self._lock:
-            state = self._states[camera_id]
+            state = self._states.get(camera_id)
+
+            if state is None:
+                return CameraStreamState(
+                    camera_id=camera_id,
+                    running=False,
+                    frame_count=0,
+                    last_error="Camera is not open or available",
+                )
 
             return CameraStreamState(
                 camera_id=state.camera_id,

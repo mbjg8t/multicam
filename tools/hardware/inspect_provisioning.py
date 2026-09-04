@@ -1,17 +1,47 @@
+import argparse
+
 from multicam.backends.picamera2 import Picamera2Backend
 from multicam.core.cameras import CameraManager
 from multicam.core.provisioning import CameraProvisioningService
 from multicam.platforms.raspberry_pi import RaspberryPiCameraProvisioner
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Inspect Raspberry Pi camera provisioning."
+    )
+
+    parser.add_argument(
+        "--config",
+        default="/boot/firmware/config.txt",
+        help=(
+            "Boot config file to inspect. "
+            "Defaults to /boot/firmware/config.txt."
+        ),
+    )
+
+    parser.add_argument(
+        "--model",
+        default="/proc/device-tree/model",
+        help="Platform model file.",
+    )
+
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
+
     manager = CameraManager()
     manager.register_backend(Picamera2Backend())
     manager.discover()
 
     service = CameraProvisioningService(
         manager=manager,
-        provisioner=RaspberryPiCameraProvisioner(),
+        provisioner=RaspberryPiCameraProvisioner(
+            config_path=args.config,
+            model_path=args.model,
+        ),
     )
 
     snapshot = service.inspect()
@@ -19,11 +49,12 @@ def main():
     print()
     print("MULTICAM CAMERA PROVISIONING")
     print("============================")
-    print(f"Platform:           {snapshot.platform}")
-    print(f"Model:              {snapshot.platform_model}")
-    print(f"camera_auto_detect: {snapshot.camera_auto_detect}")
-    print(f"Pending changes:    {snapshot.pending_changes}")
-    print(f"Reboot required:    {snapshot.reboot_required}")
+    print(f"Config file:         {args.config}")
+    print(f"Platform:            {snapshot.platform}")
+    print(f"Model:               {snapshot.platform_model}")
+    print(f"camera_auto_detect:  {snapshot.camera_auto_detect}")
+    print(f"Pending changes:     {snapshot.pending_changes}")
+    print(f"Reboot required:     {snapshot.reboot_required}")
 
     print()
     print("Configured camera overlays")
@@ -90,6 +121,42 @@ def main():
             f"runtime={runtime_name:12} "
             f"configured={configured_name:12} "
             f"port_hint={port_hint or '-'}"
+        )
+
+    print()
+    print("Proposed configuration changes")
+    print("------------------------------")
+
+    if not snapshot.proposed_changes:
+        print("None")
+
+    for change in snapshot.proposed_changes:
+        params = ",".join(
+            (
+                key
+                if value is True
+                else f"{key}={value}"
+            )
+            for key, value in change.parameters.items()
+        )
+
+        overlay_text = ""
+
+        if change.overlay:
+            overlay_text = f"dtoverlay={change.overlay}"
+
+            if params:
+                overlay_text += f",{params}"
+
+        print(
+            f"{change.action}: "
+            f"{change.description}"
+            + (f" [{overlay_text}]" if overlay_text else "")
+            + (
+                " [reboot required]"
+                if change.reboot_required
+                else ""
+            )
         )
 
     if snapshot.errors:

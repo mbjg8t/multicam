@@ -101,6 +101,26 @@ class ProvisioningChange:
 
 
 @dataclass(slots=True)
+class ProvisioningApplyResult:
+    """
+    Result of an explicit platform provisioning write operation.
+
+    Applying configuration and rebooting are deliberately separate
+    operations.
+    """
+
+    success: bool
+
+    applied_changes: list[ProvisioningChange] = field(default_factory=list)
+    skipped_changes: list[ProvisioningChange] = field(default_factory=list)
+
+    backup_path: str | None = None
+    reboot_required: bool = False
+
+    errors: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class ProvisioningSnapshot:
     platform: str
     platform_model: str | None
