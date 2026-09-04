@@ -64,7 +64,6 @@ class AravisDevice(CameraDevice):
 
         payload = self._camera.get_payload()
 
-        # A small reusable buffer pool.
         for _ in range(16):
             self._stream.push_buffer(
                 Aravis.Buffer.new_allocate(payload)
