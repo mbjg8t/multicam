@@ -83,6 +83,24 @@ class CameraProvisioningEntry:
 
 
 @dataclass(slots=True)
+class ProvisioningChange:
+    """
+    Proposed platform configuration change.
+
+    This describes what Multicam believes should change without applying
+    the change. Platform-specific code determines the actual operation.
+    """
+
+    action: str
+    description: str
+
+    overlay: str | None = None
+    parameters: dict[str, str | bool] = field(default_factory=dict)
+
+    reboot_required: bool = False
+
+
+@dataclass(slots=True)
 class ProvisioningSnapshot:
     platform: str
     platform_model: str | None
@@ -94,6 +112,8 @@ class ProvisioningSnapshot:
     entries: list[CameraProvisioningEntry] = field(default_factory=list)
 
     all_overlays: list[ConfiguredCamera] = field(default_factory=list)
+
+    proposed_changes: list[ProvisioningChange] = field(default_factory=list)
 
     reboot_required: bool = False
     pending_changes: bool = False

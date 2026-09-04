@@ -7,10 +7,13 @@ from multicam.core.provisioning import (
     CameraProvisioner,
     CameraProvisioningEntry,
     ConfiguredCamera,
+    ProvisioningChange,
     ProvisioningSnapshot,
     ProvisioningStatus,
     RuntimeCamera,
 )
+
+from .camera_overlays import is_camera_overlay
 
 
 class RaspberryPiCameraProvisioner(CameraProvisioner):
@@ -61,6 +64,8 @@ class RaspberryPiCameraProvisioner(CameraProvisioner):
             runtime_cameras,
         )
 
+        proposed_changes = self._propose_changes(entries)
+
         return ProvisioningSnapshot(
             platform="raspberry_pi",
             platform_model=platform_model,
@@ -69,8 +74,12 @@ class RaspberryPiCameraProvisioner(CameraProvisioner):
             runtime_cameras=runtime_cameras,
             entries=entries,
             all_overlays=overlays,
-            reboot_required=False,
-            pending_changes=False,
+            proposed_changes=proposed_changes,
+            reboot_required=any(
+                change.reboot_required
+                for change in proposed_changes
+            ),
+            pending_changes=bool(proposed_changes),
             errors=errors,
         )
 
@@ -202,14 +211,13 @@ class RaspberryPiCameraProvisioner(CameraProvisioner):
         Identify overlays relevant to cameras without maintaining a
         hardcoded list of Raspberry Pi sensor models.
 
-        For the first read-only implementation an overlay is considered
-        camera-related when:
+        An overlay is considered camera-related when:
+          - it is present in the Raspberry Pi camera overlay catalog,
           - its name matches a currently discovered camera model/name, or
           - it explicitly contains a cam0/cam1 parameter.
 
-        This intentionally favors correctness over guessing. A future
-        overlay catalog can recognize configured-but-missing cameras that
-        have no explicit cam0/cam1 parameter.
+        The platform catalog allows configured-but-missing cameras to
+        remain visible even when no matching runtime camera is present.
         """
 
         runtime_names = {
@@ -222,6 +230,10 @@ class RaspberryPiCameraProvisioner(CameraProvisioner):
         camera_overlays: list[ConfiguredCamera] = []
 
         for overlay in overlays:
+            if is_camera_overlay(overlay.overlay):
+                camera_overlays.append(overlay)
+                continue
+
             if overlay.overlay.lower() in runtime_names:
                 camera_overlays.append(overlay)
                 continue
@@ -288,6 +300,33 @@ class RaspberryPiCameraProvisioner(CameraProvisioner):
             )
 
         return entries
+
+    @staticmethod
+    def _propose_changes(
+        entries: list[CameraProvisioningEntry],
+    ) -> list[ProvisioningChange]:
+        changes: list[ProvisioningChange] = []
+
+        for entry in entries:
+            if (
+                entry.status
+                == ProvisioningStatus.DETECTED_NOT_CONFIGURED
+                and entry.runtime is not None
+            ):
+                overlay = entry.runtime.model or entry.runtime.name
+
+                changes.append(
+                    ProvisioningChange(
+                        action="add_overlay",
+                        description=(
+                            f"Add camera overlay for {overlay}."
+                        ),
+                        overlay=overlay,
+                        reboot_required=True,
+                    )
+                )
+
+        return changes
 
     @staticmethod
     def _find_configuration(

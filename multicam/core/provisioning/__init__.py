@@ -1,5 +1,6 @@
 from .model import (
     CameraProvisioningEntry,
+    ProvisioningChange,
     ConfiguredCamera,
     ProvisioningSnapshot,
     ProvisioningStatus,
@@ -11,6 +12,7 @@ __all__ = [
     "CameraProvisioner",
     "CameraProvisioningEntry",
     "CameraProvisioningService",
+    "ProvisioningChange",
     "ConfiguredCamera",
     "ProvisioningSnapshot",
     "ProvisioningStatus",

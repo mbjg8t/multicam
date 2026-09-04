@@ -103,6 +103,16 @@ def serialize_provisioning():
         "pending_changes": snapshot.pending_changes,
         "reboot_required": snapshot.reboot_required,
         "errors": snapshot.errors,
+        "proposed_changes": [
+            {
+                "action": change.action,
+                "description": change.description,
+                "overlay": change.overlay,
+                "parameters": change.parameters,
+                "reboot_required": change.reboot_required,
+            }
+            for change in snapshot.proposed_changes
+        ],
         "entries": [
             {
                 "status": entry.status.value,
@@ -372,6 +382,11 @@ def cameras_page():
 
     <div id="hardwareSummary" class="camera-info"></div>
     <div id="hardwareList"></div>
+
+    <div style="margin-top: 12px;">
+        <strong>Proposed Configuration</strong>
+        <div id="hardwareProposed" class="camera-info"></div>
+    </div>
 </div>
 
 <div class="section">
@@ -445,10 +460,12 @@ function hardwareStatusClass(status) {
 function renderHardware() {
     const summary = document.getElementById('hardwareSummary');
     const container = document.getElementById('hardwareList');
+    const proposed = document.getElementById('hardwareProposed');
 
     if (!hardwareState) {
         summary.textContent = 'Hardware status unavailable';
         container.innerHTML = '';
+        proposed.innerHTML = '';
         return;
     }
 
@@ -463,6 +480,7 @@ function renderHardware() {
         `Reboot required: ${hardwareState.reboot_required ? 'Yes' : 'No'}`;
 
     container.innerHTML = '';
+    proposed.innerHTML = '';
 
     if (hardwareState.entries.length === 0) {
         container.innerHTML =
@@ -521,6 +539,45 @@ function renderHardware() {
         errorDiv.className = 'camera-info stream-error';
         errorDiv.textContent = hardwareState.errors.join(' | ');
         container.appendChild(errorDiv);
+    }
+
+    const changes = hardwareState.proposed_changes || [];
+
+    if (changes.length === 0) {
+        proposed.textContent = 'No configuration changes proposed.';
+    } else {
+        changes.forEach(change => {
+            const div = document.createElement('div');
+            div.className = 'camera-info';
+
+            const params = change.parameters || {};
+
+            const paramText = Object.entries(params)
+                .map(([key, value]) =>
+                    value === true ? key : `${key}=${value}`
+                )
+                .join(',');
+
+            let text =
+                change.description ||
+                change.action ||
+                'Configuration change';
+
+            if (change.overlay) {
+                text += ` | dtoverlay=${change.overlay}`;
+
+                if (paramText) {
+                    text += `,${paramText}`;
+                }
+            }
+
+            if (change.reboot_required) {
+                text += ' | reboot required';
+            }
+
+            div.textContent = text;
+            proposed.appendChild(div);
+        });
     }
 }
 
