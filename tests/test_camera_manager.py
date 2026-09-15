@@ -77,6 +77,17 @@ class FakeBackend(CameraBackend):
         raise KeyError(camera_id)
 
 
+class FailingBackend(CameraBackend):
+
+    name = "failing"
+
+    def discover(self):
+        raise RuntimeError("discovery failed")
+
+    def open(self, camera_id):
+        raise KeyError(camera_id)
+
+
 def test_camera_manager():
 
     manager = CameraManager()
@@ -101,3 +112,16 @@ def test_camera_manager():
     assert frame.height == 480
 
     manager.close_all()
+
+
+def test_discovery_error_is_reported_without_blocking_other_backends():
+    manager = CameraManager()
+    manager.register_backend(FailingBackend())
+    manager.register_backend(FakeBackend())
+
+    cameras = manager.discover()
+
+    assert [camera.id for camera in cameras] == ["fake:test:001"]
+    assert manager.backend_errors == {
+        "failing": "RuntimeError('discovery failed')"
+    }

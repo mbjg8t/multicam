@@ -15,7 +15,16 @@ class Frame:
     camera_id: str
     image: Any
 
+    # UTC/wall-clock timestamp for reports and cross-system correlation.
     timestamp_ns: int = field(default_factory=time.time_ns)
+
+    # Host monotonic timestamp for interval and latency calculations.
+    monotonic_timestamp_ns: int = field(
+        default_factory=time.monotonic_ns
+    )
+
+    # Backend-supplied capture timestamp when the device provides one.
+    device_timestamp_ns: int | None = None
 
     width: int | None = None
     height: int | None = None

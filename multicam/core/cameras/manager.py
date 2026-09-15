@@ -14,6 +14,7 @@ class CameraManager:
 
     def __init__(self):
         self._backends: dict[str, CameraBackend] = {}
+        self._backend_errors: dict[str, str] = {}
         self._cameras: dict[str, CameraInfo] = {}
         self._devices: dict[str, CameraDevice] = {}
 
@@ -37,6 +38,11 @@ class CameraManager:
         with self._lock:
             return list(self._backends.keys())
 
+    @property
+    def backend_errors(self) -> dict[str, str]:
+        with self._lock:
+            return dict(self._backend_errors)
+
     # ------------------------------------------------------------------
     # Discovery
     # ------------------------------------------------------------------
@@ -52,13 +58,16 @@ class CameraManager:
         with self._lock:
             previous_ids = set(self._cameras.keys())
             discovered: dict[str, CameraInfo] = {}
+            backend_errors: dict[str, str] = {}
 
             for backend in self._backends.values():
                 try:
                     cameras = backend.discover()
-                except Exception:
+                except Exception as exc:
                     # A failing backend must not prevent other camera
-                    # systems from operating.
+                    # systems from operating. Retain the error so the UI and
+                    # diagnostics can explain why a backend is unavailable.
+                    backend_errors[backend.name] = repr(exc)
                     continue
 
                 for camera in cameras:
@@ -78,6 +87,7 @@ class CameraManager:
                 discovered[camera_id] = old
 
             self._cameras = discovered
+            self._backend_errors = backend_errors
 
             return list(self._cameras.values())
 

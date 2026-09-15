@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+<head>
+    <title>Multicam</title>
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/index.css') }}">
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="title">Multicam 1.0</div>
+
+            <button onclick="window.open('/cameras', 'multicam-cameras')">
+                Cameras
+            </button>
+
+            <button disabled>Alignment</button>
+            <button disabled>MTF</button>
+        </div>
+
+        <div class="viewer">
+            <img src="/stream">
+        </div>
+    </div>
+</body>
+</html>

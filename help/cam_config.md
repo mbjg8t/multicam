@@ -1,285 +1,198 @@
 # Multicam Camera Configuration
 
-Quick reference for connecting and configuring cameras in Multicam.
+Quick reference for connecting, configuring, and troubleshooting cameras.
 
 ## Start Multicam
 
 ```bash
 clear
+cd ~/dev/multicam
+source .venv/bin/activate
 multicam
-1. USB / GenICam Cameras
+```
 
-USB cameras normally do not require Raspberry Pi device-tree overlays.
+Open `http://<pi-address>:5000`, then select **Cameras**.
 
-Example: Xenics Wildcat SWIR camera.
+## USB and GenICam cameras
 
-Connect
-Connect the camera to the Pi.
-Start Multicam.
-Open Cameras.
-The camera should appear in the Add Camera Layer dropdown.
-Select it and click + Add Camera Layer.
+USB cameras normally do not require Raspberry Pi device-tree overlays. The
+Xenics Wildcat SWIR camera uses the Aravis/GenICam backend.
 
-Multicam currently uses the Aravis backend for the Xenics/GenICam camera.
+Confirm Linux sees the Xenics camera:
 
-Xenics Wildcat Troubleshooting
-
-Confirm Linux sees the camera:
-
+```bash
 clear
 lsusb | grep -i 317c
+```
 
-Expected example:
+Expected USB ID:
 
-ID 317c:f132 Xenics Wildcat-1280-TE1-USB
+```text
+317c:f132
+```
 
 Confirm Aravis sees it:
 
+```bash
 clear
 arv-tool-0.8
+```
 
-Healthy example:
+A healthy camera reports a complete device ID similar to:
 
+```text
 Xenics-317C00710261- (USB3)
+```
 
-If Aravis instead reports:
+If only `-- (USB3)` appears, the USB device is present but its USB3 Vision
+interface is not responding correctly. Power-cycle the camera and test again.
+This condition can also increase discovery time from about one second to about
+four seconds.
 
--- (USB3)
-
-the camera is visible to USB, but its USB3 Vision interface is not
-responding correctly.
-
-Power-cycle/reset the camera and test again.
-
-This bad state can also cause Aravis discovery to take approximately
-4 seconds and slow Multicam startup. Healthy Wildcat discovery is
-approximately 1 second.
-
-Xenics USB Permissions
+### Xenics USB permissions
 
 Current udev rule:
 
+```text
 SUBSYSTEM=="usb", ATTR{idVendor}=="317c", MODE="0666"
+```
 
-Location:
+Store it in `/etc/udev/rules.d/99-xenics-usb.rules`, then reload the rules:
 
-/etc/udev/rules.d/99-xenics-usb.rules
-
-After changing the rule:
-
+```bash
 clear
 sudo udevadm control --reload-rules
 sudo udevadm trigger
+```
 
-Then unplug/reconnect the camera.
+Unplug and reconnect the camera afterward.
 
-2. Raspberry Pi CSI Cameras
+## Raspberry Pi CSI cameras
 
-CSI cameras may require a Raspberry Pi device-tree overlay before
-libcamera/Picamera2 can use them.
+CSI cameras may require a device-tree overlay before Picamera2 can use them.
+Current cameras include OV5647 and OV64A40/Arducam 64 MP.
 
-Current examples:
+Check detection outside Multicam:
 
-OV5647
-OV64A40 / Arducam 64 MP
-
-Physically connect the camera and start Multicam:
-
+```bash
 clear
-multicam
+rpicam-hello --list-cameras
+```
 
-Open:
+In Multicam, open **Cameras → Hardware Configuration**. Multicam compares:
 
-Cameras -> Hardware Configuration
+- runtime camera detection
+- Raspberry Pi device-tree topology
+- `/boot/firmware/config.txt`
+- the required camera overlay
 
-Multicam compares:
+### CAM0 and CAM1
 
-Runtime camera detection
-Raspberry Pi device-tree topology
-/boot/firmware/config.txt
-Required camera overlay
-
-It then reports the camera provisioning status and any proposed
-configuration changes.
-
-3. CAM0 / CAM1 Overlay Selection
-
-Do NOT assume that Picamera2 camera number 0 means CAM0 or camera
-number 1 means CAM1.
-
-Multicam determines the physical CSI connector using the Raspberry Pi
-device tree.
+Do not assume Picamera2 camera number 0 means CAM0. Multicam resolves the
+physical connector from the device-tree path.
 
 On the current Raspberry Pi 5:
 
-CSI/DSI0 -> i2c@88000
-CSI/DSI1 -> i2c@80000
+| Physical connector | Device-tree controller | Overlay form |
+| --- | --- | --- |
+| CSI/DSI0 | `i2c@88000` | `dtoverlay=<sensor>,cam0` |
+| CSI/DSI1 | `i2c@80000` | `dtoverlay=<sensor>` |
 
-The cam0 overlay parameter selects CSI/DSI0 for supported overlays.
+Current known-good configuration:
 
-Example OV5647 on CAM0:
-
-dtoverlay=ov5647,cam0
-
-Example OV64A40 on the default CAM1 connector:
-
-dtoverlay=ov64a40
-
-Multicam determines this from the actual runtime/device-tree path
-rather than guessing from Picamera2 numbering.
-
-4. Current Working Pi Configuration
-
-Current known-good camera-related configuration:
-
+```text
 camera_auto_detect=0
 dtoverlay=ov64a40
 dtoverlay=ov5647,cam0
-
-Other unrelated settings in /boot/firmware/config.txt should be
-preserved.
+```
 
 Current physical mapping:
 
-CSI/DSI0
-  OV5647
-  dtoverlay=ov5647,cam0
+| Connector | Camera | Overlay |
+| --- | --- | --- |
+| CSI/DSI0 | OV5647 | `dtoverlay=ov5647,cam0` |
+| CSI/DSI1 | OV64A40 | `dtoverlay=ov64a40` |
 
-CSI/DSI1
-  OV64A40
-  dtoverlay=ov64a40
-5. Check Cameras Outside Multicam
+## Provisioning status
 
-List Raspberry Pi/libcamera cameras:
+Common states are:
 
-clear
-rpicam-hello --list-cameras
+- `READY`
+- `DETECTED_NOT_CONFIGURED`
+- `CONFIGURED_NOT_DETECTED`
+- `CONFIG_CHANGE_PENDING`
+- `REBOOT_REQUIRED`
+- `ERROR`
+- `UNKNOWN`
 
-List Aravis/GenICam cameras:
+For example, `DETECTED_NOT_CONFIGURED` with `dtoverlay=ov5647,cam0` means the
+camera was detected but the corresponding boot overlay is missing.
 
-clear
-arv-tool-0.8
+The provisioning service can determine required changes, preserve unrelated
+settings, create a timestamped backup, write a proposed overlay, and verify the
+result. Normal web-app startup intentionally does not have permission to modify
+the real boot configuration. Review the proposal and edit the configuration
+manually until a privileged helper is implemented.
 
-Check the Xenics at the USB level:
+After changing an overlay:
 
-clear
-lsusb | grep -i 317c
-
-These commands help determine whether a problem is in Multicam or
-below Multicam in the hardware/driver layer.
-
-6. Multicam Provisioning Status
-
-Multicam can inspect Raspberry Pi camera configuration and generate
-required changes.
-
-Typical states include:
-
-READY
-DETECTED_NOT_CONFIGURED
-CONFIGURED_NOT_DETECTED
-CONFIG_CHANGE_PENDING
-REBOOT_REQUIRED
-ERROR
-UNKNOWN
-
-Example:
-
-DETECTED_NOT_CONFIGURED
-
-with:
-
-dtoverlay=ov5647,cam0
-
-means Multicam detected the camera but the required boot overlay is
-missing.
-
-7. Apply Configuration
-
-The provisioning system has been tested to:
-
-Determine the required overlay.
-Determine CAM0/CAM1 from the actual device tree.
-Preserve the existing configuration.
-Create a timestamped backup.
-Add the required overlay.
-Verify the written configuration.
-Report whether a reboot is required.
-
-Normal Multicam currently does NOT have permission to modify the real:
-
-/boot/firmware/config.txt
-
-through the web interface.
-
-The Apply Configuration workflow has been validated using temporary
-configuration files, but privileged writing to the real Pi boot
-configuration is intentionally not enabled yet.
-
-Until this is completed, use Hardware Configuration to determine
-the required change and manually edit the boot configuration when
-necessary.
-
-After changing a CSI camera overlay, reboot:
-
+```bash
 clear
 sudo reboot
-8. Adding a Camera as a Layer
+```
 
-Once the camera is correctly discovered:
+## Add a camera layer
 
-Open Cameras.
-Find Add Camera Layer.
-Select the desired camera.
-Click + Add Camera Layer.
+Once a camera is discovered:
 
-Every camera is treated generically as a layer.
+1. Open **Cameras**.
+2. Select the camera under **Add Camera Layer**.
+3. Select **+ Add Camera Layer**.
 
-Multicam does not assign fixed roles such as RGB, NIR, SWIR, or
-Thermal.
+Multicam uses the generic relationship:
 
-The model is:
+```text
+Camera → Camera Layer → Display / Alignment / Tools
+```
 
-Camera -> Camera Layer -> Display / Alignment / Tools
+It does not assign fixed RGB, NIR, SWIR, thermal, cam0, or cam1 application
+roles.
 
-This allows arbitrary camera combinations and camera counts.
+## Troubleshooting order
 
-9. Basic Troubleshooting Order
+Work from the operating system upward.
 
-Work from the hardware upward.
+For USB/Xenics:
 
-USB / Xenics
+```bash
 clear
 lsusb | grep -i 317c
 arv-tool-0.8
-Raspberry Pi CSI
+```
+
+For Raspberry Pi CSI:
+
+```bash
 clear
 rpicam-hello --list-cameras
+```
 
-Then check:
+Then inspect **Multicam → Cameras → Hardware Configuration**.
 
-Multicam -> Cameras -> Hardware Configuration
+- If the operating-system tool cannot see the camera, fix hardware, power,
+  cabling, permissions, driver, or overlay configuration first.
+- If the backend tool sees the camera but Multicam does not, inspect Multicam's
+  backend diagnostics.
+- If a camera appears but has no image, inspect stream state, pixel format,
+  exposure, frame count, and the latest backend error.
 
-If the operating-system/backend tools cannot see the camera, fix that
-problem before troubleshooting the Multicam layer UI.
+## Backend mapping
 
-If the backend sees the camera but Multicam does not, investigate the
-Multicam discovery/backend handling.
+| Camera family | Backend |
+| --- | --- |
+| Raspberry Pi CSI/libcamera | Picamera2 |
+| Xenics USB3 Vision/GenICam | Aravis |
+| FLIR Boson | Planned backend |
 
-Current Camera Backends
-Camera type	Backend
-Raspberry Pi CSI / libcamera	Picamera2
-Xenics / USB3 Vision / GenICam	Aravis
-
-Future camera types should be added through additional backends rather
-than adding camera-specific logic throughout Multicam.
-
-Design Rule
-
-A camera is a camera. A displayed camera is a layer.
-
-Hardware-specific configuration belongs in the camera backend/platform
-provisioning layer.
-
-The rest of Multicam should remain independent of the particular
-camera model.
+Hardware-specific behavior belongs in a backend or platform provisioner. Core,
+display, alignment, MTF, and other tools remain camera-model independent.

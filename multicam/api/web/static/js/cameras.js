@@ -1,621 +1,3 @@
-from __future__ import annotations
-
-import logging
-
-import io
-import time
-
-from flask import Flask, Response, jsonify, request
-from PIL import Image
-
-from multicam.backends.aravis import AravisBackend
-from multicam.backends.picamera2 import Picamera2Backend
-from multicam.core.cameras import CameraManager, FrameBroker
-from multicam.core.provisioning import CameraProvisioningService
-from multicam.core.services import LiveViewService
-from multicam.core.state import CameraLayer, ViewStateStore
-from multicam.platforms.raspberry_pi import RaspberryPiCameraProvisioner
-import os
-from pathlib import Path
-
-
-logging.getLogger("werkzeug").setLevel(logging.ERROR)
-
-app = Flask(__name__)
-
-manager = CameraManager()
-manager.register_backend(Picamera2Backend())
-manager.register_backend(AravisBackend())
-
-broker = FrameBroker()
-state = ViewStateStore()
-
-service = LiveViewService(
-    manager=manager,
-    broker=broker,
-    state=state,
-)
-
-pi_config_path = os.environ.get(
-    "MULTICAM_PI_CONFIG",
-    "/boot/firmware/config.txt",
-)
-
-provisioning_apply_enabled = (
-    os.environ.get("MULTICAM_ALLOW_PROVISIONING_WRITE") == "1"
-    and "MULTICAM_PI_CONFIG" in os.environ
-    and Path(pi_config_path).resolve()
-        != Path("/boot/firmware/config.txt").resolve()
-)
-
-provisioning_service = CameraProvisioningService(
-    manager=manager,
-    provisioner=RaspberryPiCameraProvisioner(
-        config_path=pi_config_path,
-    ),
-)
-
-
-def initialize():
-    cameras = manager.discover()
-
-    if not cameras:
-        raise RuntimeError("No cameras discovered")
-
-    opened = []
-
-    for info in cameras:
-        try:
-            device = manager.open(info.id)
-            broker.add_camera(device)
-            opened.append(info)
-        except Exception:
-            app.logger.exception(
-                "Unable to open camera %s [%s]",
-                info.name,
-                info.backend,
-            )
-
-    if not opened:
-        raise RuntimeError(
-            "Cameras were discovered, but none could be opened"
-        )
-
-    # Temporary startup default only. Until camera role/user metadata is
-    # persisted, Picamera2 is our best available indication of the visible
-    # camera. If none exists, use the first successfully opened camera.
-    visible = next(
-        (c for c in opened if c.backend == "picamera2"),
-        opened[0],
-    )
-
-    state.add_layer(
-        CameraLayer(
-            camera_id=visible.id,
-            opacity=1.0,
-            z_order=0,
-        )
-    )
-
-    broker.start_all()
-
-
-def serialize_state():
-    current = state.get()
-
-    return {
-        "layers": [
-            {
-                "camera_id": layer.camera_id,
-                "enabled": layer.enabled,
-                "opacity": layer.opacity,
-                "display_mode": layer.display_mode,
-                "z_order": layer.z_order,
-                "transform": {
-                    "x": layer.transform.x,
-                    "y": layer.transform.y,
-                    "scale_x": layer.transform.scale_x,
-                    "scale_y": layer.transform.scale_y,
-                    "rotation_deg": layer.transform.rotation_deg,
-                },
-            }
-            for layer in current.layers
-        ],
-    }
-
-
-def serialize_provisioning():
-    snapshot = provisioning_service.inspect()
-
-    return {
-        "platform": snapshot.platform,
-        "platform_model": snapshot.platform_model,
-        "camera_auto_detect": snapshot.camera_auto_detect,
-        "pending_changes": snapshot.pending_changes,
-        "reboot_required": snapshot.reboot_required,
-        "apply_enabled": provisioning_apply_enabled,
-        "errors": snapshot.errors,
-        "proposed_changes": [
-            {
-                "action": change.action,
-                "description": change.description,
-                "overlay": change.overlay,
-                "parameters": change.parameters,
-                "reboot_required": change.reboot_required,
-            }
-            for change in snapshot.proposed_changes
-        ],
-        "entries": [
-            {
-                "status": entry.status.value,
-                "message": entry.message,
-                "runtime": (
-                    {
-                        "runtime_id": entry.runtime.runtime_id,
-                        "backend": entry.runtime.backend,
-                        "name": entry.runtime.name,
-                        "model": entry.runtime.model,
-                        "connected": entry.runtime.connected,
-                        "runtime_number": entry.runtime.runtime_number,
-                        "runtime_path": entry.runtime.runtime_path,
-                        "rotation": entry.runtime.rotation,
-                    }
-                    if entry.runtime is not None
-                    else None
-                ),
-                "configured": (
-                    {
-                        "overlay": entry.configured.overlay,
-                        "parameters": entry.configured.parameters,
-                        "port_hint": entry.configured.port_hint,
-                        "line_number": entry.configured.line_number,
-                    }
-                    if entry.configured is not None
-                    else None
-                ),
-            }
-            for entry in snapshot.entries
-        ],
-    }
-
-
-@app.route("/")
-def index():
-    return """
-<!doctype html>
-<html>
-<head>
-    <title>Multicam</title>
-
-    <style>
-        html, body {
-            margin: 0;
-            background: #111;
-            color: white;
-            font-family: Arial, sans-serif;
-        }
-
-        .container {
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
-        }
-
-        .header {
-            height: 52px;
-            box-sizing: border-box;
-            padding: 8px 12px;
-            background: #222;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .title {
-            font-weight: bold;
-            margin-right: 20px;
-        }
-
-        button {
-            background: #444;
-            color: white;
-            border: 1px solid #666;
-            border-radius: 4px;
-            padding: 7px 14px;
-            cursor: pointer;
-        }
-
-        button:hover:not(:disabled) {
-            background: #555;
-        }
-
-        button:disabled {
-            opacity: 0.45;
-            cursor: default;
-        }
-
-        .viewer {
-            flex: 1;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            overflow: hidden;
-            padding: 10px;
-            box-sizing: border-box;
-        }
-
-        .viewer img {
-            max-width: 100%;
-            max-height: 100%;
-            object-fit: contain;
-        }
-    </style>
-</head>
-
-<body>
-    <div class="container">
-        <div class="header">
-            <div class="title">Multicam 1.0</div>
-
-            <button onclick="window.open('/cameras', 'multicam-cameras')">
-                Cameras
-            </button>
-
-            <button disabled>Alignment</button>
-            <button disabled>MTF</button>
-        </div>
-
-        <div class="viewer">
-            <img src="/stream">
-        </div>
-    </div>
-</body>
-</html>
-"""
-
-
-@app.route("/cameras")
-def cameras_page():
-    return r"""
-<!doctype html>
-<html>
-<head>
-    <title>Multicam - Cameras</title>
-
-    <style>
-        body {
-            margin: 0;
-            padding: 20px;
-            background: #181818;
-            color: #eee;
-            font-family: Arial, sans-serif;
-        }
-
-        h2 {
-            margin-top: 0;
-        }
-
-        .section {
-            background: #242424;
-            border: 1px solid #444;
-            border-radius: 6px;
-            padding: 16px;
-            margin-bottom: 18px;
-        }
-
-        .layer {
-            border-top: 1px solid #444;
-            padding: 14px 0;
-        }
-
-        .layer:first-child {
-            border-top: none;
-        }
-
-        .layer-title {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .layer-number {
-            color: #aaa;
-            min-width: 58px;
-        }
-
-        .camera-info {
-            font-size: 13px;
-            color: #aaa;
-            margin-top: 6px;
-        }
-
-        .stream-ok {
-            color: #8f8;
-        }
-
-        .stream-error {
-            color: #f88;
-        }
-
-        .row {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            margin: 10px 0 4px 0;
-            flex-wrap: wrap;
-        }
-
-        select,
-        input[type="range"] {
-            margin-top: 4px;
-        }
-
-        select {
-            background: #333;
-            color: white;
-            border: 1px solid #666;
-            padding: 7px;
-            min-width: 350px;
-        }
-
-        button {
-            background: #444;
-            color: white;
-            border: 1px solid #666;
-            border-radius: 4px;
-            padding: 7px 12px;
-            cursor: pointer;
-        }
-
-        button:hover:not(:disabled) {
-            background: #555;
-        }
-
-        button:disabled {
-            opacity: 0.45;
-            cursor: default;
-        }
-
-        .opacity {
-            width: 260px;
-        }
-
-        .value {
-            width: 45px;
-        }
-
-        .spacer {
-            flex: 1;
-        }
-
-        .status {
-            color: #8f8;
-            font-size: 13px;
-            min-height: 18px;
-        }
-
-        .camera-settings {
-            display: none;
-            margin-top: 10px;
-            padding: 10px;
-            border-top: 1px solid #444;
-        }
-
-        .camera-settings.open {
-            display: block;
-        }
-
-        .setting-row {
-            display: grid;
-            grid-template-columns:
-                140px
-                minmax(120px, 220px)
-                70px
-                minmax(180px, 1fr);
-            gap: 8px;
-            align-items: center;
-            margin: 7px 0;
-        }
-
-        .setting-row input[type="number"] {
-            width: 100%;
-            box-sizing: border-box;
-        }
-
-        .setting-row input[type="checkbox"] {
-            width: auto;
-            justify-self: start;
-        }
-
-        .setting-range {
-            color: #999;
-            font-size: 12px;
-        }
-
-        .setting-actions {
-            display: flex;
-            gap: 6px;
-            align-items: center;
-        }
-
-        .setting-actions button {
-            width: auto;
-            min-width: 64px;
-            padding: 6px 12px;
-        }
-
-        .setting-default {
-            color: #aaa;
-            font-size: 12px;
-            margin-left: 6px;
-        }
-
-        .settings-message {
-            color: #aaa;
-            font-size: 13px;
-            padding: 5px 0;
-        }
-
-        .camera-settings {
-            padding: 12px 4px 6px 4px;
-        }
-
-        .settings-section {
-            margin: 8px 0 18px 0;
-        }
-
-        .settings-section-title {
-            color: #aaa;
-            font-size: 12px;
-            font-weight: bold;
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
-            margin: 4px 0 8px 0;
-        }
-
-        .control-row {
-            display: grid;
-            grid-template-columns:
-                135px
-                minmax(180px, 360px)
-                110px
-                32px;
-            gap: 10px;
-            align-items: center;
-            min-height: 34px;
-            margin: 4px 0;
-        }
-
-        .control-row.readonly {
-            grid-template-columns:
-                135px
-                minmax(180px, 360px);
-        }
-
-        .control-name {
-            white-space: nowrap;
-        }
-
-        .control-slider {
-            width: 100%;
-        }
-
-        .control-value {
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-
-        .control-value input[type="number"] {
-            width: 82px;
-            box-sizing: border-box;
-        }
-
-        .control-unit {
-            color: #ccc;
-            white-space: nowrap;
-        }
-
-        .control-reset {
-            width: 30px;
-            min-width: 30px;
-            padding: 4px;
-            font-size: 16px;
-            line-height: 18px;
-        }
-
-        .control-default {
-            color: #888;
-            font-size: 11px;
-            margin-left: 145px;
-            margin-top: -2px;
-            margin-bottom: 5px;
-        }
-
-        .control-toggle {
-            justify-self: start;
-        }
-
-        .control-readonly-value {
-            color: #ddd;
-        }
-
-        @media (max-width: 800px) {
-            .control-row {
-                grid-template-columns:
-                    120px
-                    minmax(120px, 1fr)
-                    95px
-                    32px;
-            }
-
-            .control-default {
-                margin-left: 130px;
-            }
-        }
-
-        .empty {
-            color: #aaa;
-            padding: 10px 0;
-        }
-    </style>
-</head>
-
-<body>
-
-<h2>Cameras</h2>
-
-<div class="section">
-    <div class="row">
-        <strong>Hardware Configuration</strong>
-        <span class="spacer"></span>
-        <button onclick="refreshHardware()">Refresh</button>
-    </div>
-
-    <div id="hardwareSummary" class="camera-info"></div>
-    <div id="hardwareList"></div>
-
-    <div style="margin-top: 12px;">
-        <div class="row">
-            <strong>Proposed Configuration</strong>
-            <span class="spacer"></span>
-            <button
-                id="hardwareApplyButton"
-                onclick="applyHardwareConfiguration()"
-                disabled
-            >
-                Apply Configuration
-            </button>
-        </div>
-        <div id="hardwareProposed" class="camera-info"></div>
-        <div id="hardwareApplyResult" class="camera-info"></div>
-    </div>
-</div>
-
-<div class="section">
-    <strong>Camera Layers</strong>
-    <div id="layerList"></div>
-</div>
-
-<div class="section">
-    <strong>Add Camera Layer</strong>
-
-    <div class="row">
-        <select id="availableCamera"></select>
-        <button id="addLayerButton" onclick="addLayer()">
-            + Add Camera Layer
-        </button>
-    </div>
-
-    <div class="camera-info">
-        The first visible camera is Layer 1 by default. Every layer uses the
-        same enable and opacity controls.
-    </div>
-</div>
-
-<div id="status" class="status"></div>
-
-<script>
 
 let cameras = [];
 let streams = [];
@@ -1319,7 +701,9 @@ function cameraNumericControl(
                     '${escapeJs(cameraId)}',
                     '${escapeJs(capability.id)}',
                     this.value,
-                    ${JSON.stringify(spec)}
+                    ${spec.minimum},
+                    ${spec.maximum},
+                    ${spec.useLog ? 'true' : 'false'}
                 )"
             >
         `;
@@ -1489,6 +873,207 @@ function cameraReadonlyControl(
 }
 
 
+function cameraProfileSelectId(cameraId) {
+    return (
+        'camera-profile-' +
+        encodeURIComponent(cameraId)
+    );
+}
+
+
+function cameraProfileBar(cameraId, profiles) {
+    const selectId = cameraProfileSelectId(cameraId);
+
+    let options = `
+        <option value="">Select profile...</option>
+    `;
+
+    for (const profile of profiles) {
+        options += `
+            <option value="${escapeHtml(profile.name)}">
+                ${escapeHtml(profile.name)}
+            </option>
+        `;
+    }
+
+    return `
+        <div class="camera-profile-bar">
+            <label for="${selectId}">
+                Profile:
+            </label>
+
+            <select id="${selectId}">
+                ${options}
+            </select>
+
+            <button onclick="loadCameraProfile(
+                '${escapeJs(cameraId)}'
+            )">
+                Load
+            </button>
+
+            <button onclick="saveCameraProfile(
+                '${escapeJs(cameraId)}'
+            )">
+                Save As...
+            </button>
+
+            <button onclick="deleteCameraProfile(
+                '${escapeJs(cameraId)}'
+            )">
+                Delete
+            </button>
+        </div>
+    `;
+}
+
+
+function selectedCameraProfile(cameraId) {
+    const select = document.getElementById(
+        cameraProfileSelectId(cameraId)
+    );
+
+    if (!select) {
+        return '';
+    }
+
+    return select.value;
+}
+
+
+async function saveCameraProfile(cameraId) {
+    const name = window.prompt(
+        'Camera profile name:'
+    );
+
+    if (!name || !name.trim()) {
+        return;
+    }
+
+    try {
+        const result = await api(
+            '/api/camera-profiles',
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    name: name.trim(),
+                    camera_id: cameraId
+                })
+            }
+        );
+
+        await loadCameraSettings(cameraId);
+
+        const select = document.getElementById(
+            cameraProfileSelectId(cameraId)
+        );
+
+        if (select && result.profile) {
+            select.value = result.profile.name;
+        }
+
+    } catch (error) {
+        window.alert(
+            'Unable to save camera profile: ' +
+            error.message
+        );
+    }
+}
+
+
+async function loadCameraProfile(cameraId) {
+    const profileName = selectedCameraProfile(cameraId);
+
+    if (!profileName) {
+        window.alert('Select a profile first.');
+        return;
+    }
+
+    try {
+        const result = await api(
+            '/api/camera-profiles/' +
+            encodeURIComponent(profileName) +
+            '/load',
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    camera_id: cameraId
+                })
+            }
+        );
+
+        await loadCameraSettings(cameraId);
+
+        const select = document.getElementById(
+            cameraProfileSelectId(cameraId)
+        );
+
+        if (select) {
+            select.value = profileName;
+        }
+
+        if (
+            result.errors &&
+            result.errors.length > 0
+        ) {
+            window.alert(
+                'Profile loaded with ' +
+                result.errors.length +
+                ' control error(s).'
+            );
+        }
+
+    } catch (error) {
+        window.alert(
+            'Unable to load camera profile: ' +
+            error.message
+        );
+    }
+}
+
+
+async function deleteCameraProfile(cameraId) {
+    const profileName = selectedCameraProfile(cameraId);
+
+    if (!profileName) {
+        window.alert('Select a profile first.');
+        return;
+    }
+
+    if (!window.confirm(
+        'Delete camera profile "' +
+        profileName +
+        '"?'
+    )) {
+        return;
+    }
+
+    try {
+        await api(
+            '/api/camera-profiles/' +
+            encodeURIComponent(profileName),
+            {
+                method: 'DELETE'
+            }
+        );
+
+        await loadCameraSettings(cameraId);
+
+    } catch (error) {
+        window.alert(
+            'Unable to delete camera profile: ' +
+            error.message
+        );
+    }
+}
+
+
 async function loadCameraSettings(cameraId) {
     const panel = document.getElementById(
         'settings-' + encodeURIComponent(cameraId)
@@ -1547,7 +1132,26 @@ async function loadCameraSettings(cameraId) {
             sections[section].push(capability);
         }
 
-        let html = '';
+        let profiles = [];
+
+        try {
+            const profileData = await api(
+                '/api/camera-profiles'
+            );
+
+            profiles = profileData.profiles || [];
+
+        } catch (error) {
+            console.error(
+                'Unable to load camera profiles:',
+                error
+            );
+        }
+
+        let html = cameraProfileBar(
+            cameraId,
+            profiles
+        );
 
         for (const [sectionName, capabilities] of
             Object.entries(sections)) {
@@ -1613,8 +1217,16 @@ function cameraSliderChanged(
     cameraId,
     controlId,
     sliderValue,
-    spec
+    minimum,
+    maximum,
+    useLog
 ) {
+    const spec = {
+        minimum: Number(minimum),
+        maximum: Number(maximum),
+        useLog: Boolean(useLog)
+    };
+
     const value = sliderToValue(
         sliderValue,
         spec
@@ -1943,365 +1555,3 @@ refresh().catch(error => {
 setInterval(() => {
     refresh().catch(console.error);
 }, 2000);
-
-</script>
-
-</body>
-</html>
-"""
-
-
-@app.route("/api/cameras")
-def cameras_api():
-    return jsonify([
-        {
-            "id": c.id,
-            "backend": c.backend,
-            "name": c.name,
-            "model": c.model,
-            "vendor": c.vendor,
-            "serial": c.serial,
-            "connected": c.connected,
-        }
-        for c in manager.list_cameras()
-    ])
-
-
-@app.route(
-    "/api/cameras/<path:camera_id>/capabilities"
-)
-def camera_capabilities_api(camera_id):
-    device = manager.get_device(camera_id)
-
-    if device is None:
-        return jsonify({
-            "error": "Camera is not open"
-        }), 404
-
-    try:
-        capabilities = device.get_capabilities()
-    except Exception as exc:
-        app.logger.exception(
-            "Unable to read capabilities for camera %s",
-            camera_id,
-        )
-        return jsonify({"error": str(exc)}), 500
-
-    result = []
-
-    for capability in capabilities:
-        current_value = capability.value
-
-        if capability.readable:
-            try:
-                current_value = device.get_control(capability.id)
-            except Exception:
-                app.logger.debug(
-                    "Unable to read camera control %s:%s",
-                    camera_id,
-                    capability.id,
-                    exc_info=True,
-                )
-
-        result.append({
-            "id": capability.id,
-            "name": capability.name,
-            "type": capability.type,
-            "readable": capability.readable,
-            "writable": capability.writable,
-            "value": capability.value,
-            "current_value": current_value,
-            "minimum": capability.minimum,
-            "maximum": capability.maximum,
-            "step": capability.step,
-            "choices": capability.choices,
-            "units": capability.units,
-            "metadata": capability.metadata,
-        })
-
-    return jsonify({
-        "camera_id": camera_id,
-        "capabilities": result,
-    })
-
-
-@app.route(
-    "/api/cameras/<path:camera_id>/controls",
-    methods=["POST"],
-)
-def camera_controls_api(camera_id):
-    device = manager.get_device(camera_id)
-
-    if device is None:
-        return jsonify({
-            "error": "Camera is not open"
-        }), 404
-
-    data = request.get_json(force=True)
-    control_id = data.get("control_id")
-
-    if not control_id:
-        return jsonify({
-            "error": "control_id is required"
-        }), 400
-
-    capabilities = {
-        capability.id: capability
-        for capability in device.get_capabilities()
-    }
-
-    capability = capabilities.get(control_id)
-
-    if capability is None:
-        return jsonify({
-            "error": "Unknown camera control"
-        }), 404
-
-    if not capability.writable:
-        return jsonify({
-            "error": "Camera control is read-only"
-        }), 400
-
-    value = data.get("value")
-
-    try:
-        device.set_control(control_id, value)
-        current_value = (
-            device.get_control(control_id)
-            if capability.readable
-            else value
-        )
-    except Exception as exc:
-        app.logger.exception(
-            "Unable to set camera control %s:%s",
-            camera_id,
-            control_id,
-        )
-        return jsonify({"error": str(exc)}), 500
-
-    return jsonify({
-        "camera_id": camera_id,
-        "control_id": control_id,
-        "value": current_value,
-    })
-
-
-@app.route("/api/state")
-def state_api():
-    return jsonify(serialize_state())
-
-
-@app.route("/api/hardware")
-def hardware_api():
-    return jsonify(serialize_provisioning())
-
-
-@app.route("/api/hardware/apply", methods=["POST"])
-def hardware_apply_api():
-    if not provisioning_apply_enabled:
-        return jsonify({
-            "success": False,
-            "error": (
-                "Provisioning writes are disabled. "
-                "Test writes require an alternate MULTICAM_PI_CONFIG "
-                "and MULTICAM_ALLOW_PROVISIONING_WRITE=1."
-            ),
-        }), 403
-
-    snapshot = provisioning_service.inspect()
-
-    if not snapshot.proposed_changes:
-        return jsonify({
-            "success": True,
-            "applied_changes": [],
-            "skipped_changes": [],
-            "backup_path": None,
-            "reboot_required": False,
-            "errors": [],
-        })
-
-    result = provisioning_service.apply(
-        snapshot.proposed_changes
-    )
-
-    return jsonify({
-        "success": result.success,
-        "applied_changes": [
-            {
-                "action": change.action,
-                "description": change.description,
-                "overlay": change.overlay,
-                "parameters": change.parameters,
-                "reboot_required": change.reboot_required,
-            }
-            for change in result.applied_changes
-        ],
-        "skipped_changes": [
-            {
-                "action": change.action,
-                "description": change.description,
-                "overlay": change.overlay,
-                "parameters": change.parameters,
-                "reboot_required": change.reboot_required,
-            }
-            for change in result.skipped_changes
-        ],
-        "backup_path": result.backup_path,
-        "reboot_required": result.reboot_required,
-        "errors": result.errors,
-    }), (200 if result.success else 500)
-
-
-@app.route("/api/layers", methods=["POST"])
-def add_layer_api():
-    data = request.get_json(force=True)
-
-    camera_id = data.get("camera_id")
-    opacity = float(data.get("opacity", 0.5))
-
-    known_ids = {
-        camera.id
-        for camera in manager.list_cameras()
-    }
-
-    if camera_id not in known_ids:
-        return jsonify({"error": "Unknown camera"}), 404
-
-    current = state.get()
-
-    if any(
-        layer.camera_id == camera_id
-        for layer in current.layers
-    ):
-        return jsonify({
-            "error": "Camera is already a layer"
-        }), 400
-
-    next_z = max(
-        (layer.z_order for layer in current.layers),
-        default=-1,
-    ) + 1
-
-    state.add_layer(
-        CameraLayer(
-            camera_id=camera_id,
-            opacity=opacity,
-            z_order=next_z,
-        )
-    )
-
-    return jsonify(serialize_state())
-
-
-@app.route(
-    "/api/layers/<path:camera_id>",
-    methods=["PATCH"],
-)
-def update_layer_api(camera_id):
-    data = request.get_json(force=True)
-
-    try:
-        state.update_layer(
-            camera_id,
-            enabled=data.get("enabled"),
-            opacity=data.get("opacity"),
-        )
-    except KeyError:
-        return jsonify({"error": "Layer not found"}), 404
-
-    return jsonify(serialize_state())
-
-
-@app.route(
-    "/api/layers/<path:camera_id>",
-    methods=["DELETE"],
-)
-def remove_layer_api(camera_id):
-    state.remove_layer(camera_id)
-    return jsonify(serialize_state())
-
-
-@app.route("/stream")
-def stream():
-    def generate():
-        while True:
-            image = service.get_composite()
-
-            if image is None:
-                time.sleep(0.05)
-                continue
-
-            buffer = io.BytesIO()
-
-            Image.fromarray(image).save(
-                buffer,
-                format="JPEG",
-                quality=85,
-            )
-
-            jpg = buffer.getvalue()
-
-            yield (
-                b"--frame\r\n"
-                b"Content-Type: image/jpeg\r\n\r\n"
-                + jpg
-                + b"\r\n"
-            )
-
-            time.sleep(0.03)
-
-    return Response(
-        generate(),
-        mimetype=(
-            "multipart/x-mixed-replace;"
-            " boundary=frame"
-        ),
-    )
-
-
-@app.route("/api/streams")
-def streams_api():
-    result = []
-
-    for camera in manager.list_cameras():
-        stream_state = broker.get_state(camera.id)
-        frame = broker.get_latest(camera.id)
-
-        item = {
-            "id": camera.id,
-            "backend": camera.backend,
-            "name": camera.name,
-            "running": stream_state.running,
-            "frame_count": stream_state.frame_count,
-            "last_error": stream_state.last_error,
-            "has_frame": frame is not None,
-        }
-
-        if frame is not None:
-            item.update({
-                "frame_number": frame.frame_number,
-                "width": frame.width,
-                "height": frame.height,
-                "pixel_format": frame.pixel_format,
-                "dtype": str(frame.image.dtype),
-                "min": int(frame.image.min()),
-                "max": int(frame.image.max()),
-            })
-
-        result.append(item)
-
-    return jsonify(result)
-
-
-if __name__ == "__main__":
-    initialize()
-
-    try:
-        app.run(
-            host="0.0.0.0",
-            port=5000,
-            threaded=True,
-        )
-    finally:
-        broker.stop_all()
-        manager.close_all()

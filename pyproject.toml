@@ -4,15 +4,27 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "multicam"
-version = "0.1.0"
+version = "1.0.0.dev0"
 description = "Portable multi-camera acquisition, overlay, alignment and imaging framework"
 requires-python = ">=3.11"
 dependencies = [
+    "Flask>=3.0",
     "numpy>=1.24",
+    "Pillow>=10.0",
 ]
+
+[project.scripts]
+multicam = "multicam.api.web.app:main"
 
 [tool.setuptools.packages.find]
 include = ["multicam*"]
+
+[tool.setuptools.package-data]
+"multicam.api.web" = [
+    "static/css/*.css",
+    "static/js/*.js",
+    "templates/*.html",
+]
 
 [project.optional-dependencies]
 dev = [

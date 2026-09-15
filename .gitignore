@@ -14,6 +14,7 @@ venv/
 Thumbs.db
 
 # Runtime/generated data
+build/
 logs/
 captures/
 recordings/
@@ -26,5 +27,6 @@ config/local.json
 # Development leftovers
 *.bak
 *.backup
+*.before_*
 *~
 *.egg-info/

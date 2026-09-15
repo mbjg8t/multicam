@@ -1,0 +1,66 @@
+<!doctype html>
+<html>
+<head>
+    <title>Multicam - Cameras</title>
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/cameras.css') }}">
+</head>
+
+<body>
+
+<h2>Cameras</h2>
+
+<div class="section">
+    <div class="row">
+        <strong>Hardware Configuration</strong>
+        <span class="spacer"></span>
+        <button onclick="refreshHardware()">Refresh</button>
+    </div>
+
+    <div id="hardwareSummary" class="camera-info"></div>
+    <div id="hardwareList"></div>
+
+    <div style="margin-top: 12px;">
+        <div class="row">
+            <strong>Proposed Configuration</strong>
+            <span class="spacer"></span>
+            <button
+                id="hardwareApplyButton"
+                onclick="applyHardwareConfiguration()"
+                disabled
+            >
+                Apply Configuration
+            </button>
+        </div>
+        <div id="hardwareProposed" class="camera-info"></div>
+        <div id="hardwareApplyResult" class="camera-info"></div>
+    </div>
+</div>
+
+<div class="section">
+    <strong>Camera Layers</strong>
+    <div id="layerList"></div>
+</div>
+
+<div class="section">
+    <strong>Add Camera Layer</strong>
+
+    <div class="row">
+        <select id="availableCamera"></select>
+        <button id="addLayerButton" onclick="addLayer()">
+            + Add Camera Layer
+        </button>
+    </div>
+
+    <div class="camera-info">
+        The first visible camera is Layer 1 by default. Every layer uses the
+        same enable and opacity controls.
+    </div>
+</div>
+
+<div id="status" class="status"></div>
+
+<script src="{{ url_for('static', filename='js/cameras.js') }}"></script>
+
+</body>
+</html>

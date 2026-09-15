@@ -129,44 +129,59 @@ Platforms may later provide optimized implementations such as:
 
 These optimizations must not change the public core interfaces.
 
-## Initial Multicam 1.0 Scope
+## Multicam 1.0 Status
 
-Implement now:
+Implemented foundation:
 
 - camera discovery/management framework
 - Raspberry Pi Picamera2 backend
 - Xenics GenICam/Aravis backend
-- FLIR Boson backend
 - generic 0..N camera layers
 - shared application state
 - live main view
 - camera configuration window
-- alignment window
-- existing MTF functionality
+- camera profiles
+- Raspberry Pi camera provisioning inspection
 
-Leave extension points but do not implement yet:
+Planned:
 
+- FLIR Boson backend
+- runtime hot-plug reconciliation
+- alignment and calibration tools
+- selectable DSP pipelines
+- MTF service and Workbench integration
 - recording
-- advanced capture
-- additional calibration tools
-- sessions
+- synchronized capture and measurement sessions
+- automated reports
 - tracking/detection
 - native desktop GUI
 - advanced platform acceleration
 
 ## Intended High-Level Flow
 
-    Camera Backends
-          |
-    Camera Manager
-          |
-      Frame Broker
-          |
-    +-----+--------+---------+
-    |              |         |
- Live View     Compositor   Tools
-                   |
-                0..N Layers
+```mermaid
+flowchart TD
+    A[Camera backends] --> B[CameraManager]
+    B --> C[FrameBroker]
+    C --> D[Live compositor]
+    C --> E[Capture and recording]
+    C --> F[Measurement tools]
+```
 
 Shared state and events connect all application services and user interfaces.
 
+The current broker retains the latest frame for live viewing. Its public
+boundary will evolve to support bounded preview subscribers and controlled,
+complete measurement capture without allowing tools to access hardware
+directly.
+
+## Persistent and Runtime Data
+
+Source-controlled files are examples, defaults, tests, and application code.
+Writable operator data must not be stored inside the repository.
+
+Camera profiles default to `~/.config/multicam/camera_profiles/`. The base
+configuration directory can be overridden with `MULTICAM_CONFIG_DIR`. Future
+rig calibration, measurement-session indexes, and UI preferences should use
+the same runtime-data boundary while large captured evidence uses a separately
+configured data directory.
