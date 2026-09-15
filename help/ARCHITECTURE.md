@@ -147,6 +147,8 @@ Implemented foundation:
 - persistent per-camera display orientation applied before registration
 - safe capability-driven live-preview resolution changes with selected-camera
   stream restart
+- independent focus analysis using shared broker frames and backend-reported
+  lens controls
 
 Planned:
 
@@ -186,6 +188,12 @@ correlation, keeping it portable and less dependent on spectral brightness.
 The automatic result is only a draft; reported confidence, overlay inspection,
 manual point correction, nudging, acceptance, and undo remain operator-facing
 safeguards.
+
+Focus analysis is a non-owning consumer of the latest broker frame. It computes
+relative sharpness from raw-value grayscale data inside an operator-selected
+ROI while using the normal display conversion for viewing. Session peak and
+trend state remain in the Focus browser window. Hardware lens operations stay
+behind generic camera capabilities and are absent for fixed-focus devices.
 
 Camera orientation is a separate per-camera presentation setting. It corrects
 physical mounting (right-angle rotation and horizontal/vertical flip) before

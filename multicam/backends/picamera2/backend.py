@@ -150,6 +150,41 @@ class Picamera2Device(CameraDevice):
                 )
             )
 
+        if "AfMode" in controls:
+            capabilities.append(
+                CameraCapability(
+                    id="focus_mode",
+                    name="Focus Mode",
+                    type="choice",
+                    readable=True,
+                    writable=True,
+                    value="manual",
+                    choices=["manual", "single", "continuous"],
+                    metadata={
+                        "purpose": "focus",
+                        "profile_persistent": False,
+                    },
+                )
+            )
+
+        if "LensPosition" in controls:
+            minimum, maximum, default = controls["LensPosition"]
+            capabilities.append(
+                CameraCapability(
+                    id="focus_position",
+                    name="Lens Position",
+                    type="float",
+                    readable=True,
+                    writable=True,
+                    value=default,
+                    minimum=minimum,
+                    maximum=maximum,
+                    step=0.05,
+                    units="diopters",
+                    metadata={"purpose": "focus"},
+                )
+            )
+
         capabilities.append(
             CameraCapability(
                 id="preview_resolution",
@@ -181,6 +216,12 @@ class Picamera2Device(CameraDevice):
         if control_id == "gain":
             return metadata.get("AnalogueGain")
 
+        if control_id == "focus_mode":
+            return self._focus_mode_name(metadata.get("AfMode"))
+
+        if control_id == "focus_position":
+            return metadata.get("LensPosition")
+
         if control_id == "preview_resolution":
             return self._format_preview_size(self._preview_size)
 
@@ -203,6 +244,50 @@ class Picamera2Device(CameraDevice):
                     "AnalogueGain": float(value),
                 }
             )
+            return
+
+        if control_id == "focus_mode":
+            modes = {
+                "manual": 0,
+                "single": 1,
+                "continuous": 2,
+            }
+            mode = str(value).lower()
+
+            if mode not in modes:
+                raise ValueError(f"Unsupported focus mode: {value}")
+
+            controls = {"AfMode": modes[mode]}
+
+            if mode == "single":
+                controls["AfTrigger"] = 0
+
+            self._camera.set_controls(controls)
+            return
+
+        if control_id == "focus_position":
+            position = float(value)
+            capability = next(
+                item
+                for item in self.get_capabilities()
+                if item.id == "focus_position"
+            )
+
+            if (
+                capability.minimum is not None
+                and position < float(capability.minimum)
+            ) or (
+                capability.maximum is not None
+                and position > float(capability.maximum)
+            ):
+                raise ValueError("Lens position is outside the supported range")
+
+            controls = {"LensPosition": position}
+
+            if "AfMode" in self._camera.camera_controls:
+                controls["AfMode"] = 0
+
+            self._camera.set_controls(controls)
             return
 
         if control_id == "preview_resolution":
@@ -243,6 +328,19 @@ class Picamera2Device(CameraDevice):
             raise ValueError("Preview dimensions must be positive")
 
         return width, height
+
+    @staticmethod
+    def _focus_mode_name(value):
+        try:
+            mode = int(value)
+        except (TypeError, ValueError):
+            return None
+
+        return {
+            0: "manual",
+            1: "single",
+            2: "continuous",
+        }.get(mode, str(mode))
 
 
 class Picamera2Backend(CameraBackend):

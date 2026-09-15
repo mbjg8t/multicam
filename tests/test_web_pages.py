@@ -11,6 +11,7 @@ def test_main_page_renders_from_template():
     assert b'<img src="/stream">' in response.data
     assert b'id="camera-strip"' in response.data
     assert b'Align to' in response.data
+    assert b'id="open-focus"' in response.data
 
 
 def test_cameras_page_renders_from_template():
@@ -32,6 +33,17 @@ def test_alignment_page_renders_from_template():
     assert b'id="reference-stage"' in response.data
     assert b'id="target-stage"' in response.data
     assert b'id="nudge-step"' in response.data
+
+
+def test_focus_page_renders_from_template():
+    client = app.test_client()
+
+    response = client.get("/focus")
+
+    assert response.status_code == 200
+    assert b"Focus sharpness proxy" in response.data
+    assert b'id="focus-camera"' in response.data
+    assert b'id="roi-preview"' in response.data
 
 
 def test_alignment_status_api_is_available_without_cameras():
@@ -56,6 +68,8 @@ def test_web_static_assets_are_available():
         "/static/css/alignment.css",
         "/static/js/alignment.js",
         "/static/js/index.js",
+        "/static/css/focus.css",
+        "/static/js/focus.js",
     ):
         response = client.get(path)
         assert response.status_code == 200

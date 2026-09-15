@@ -155,5 +155,9 @@ document.getElementById('open-alignment').addEventListener('click', () => {
     window.open('/alignment', 'multicam-alignment');
 });
 
+document.getElementById('open-focus').addEventListener('click', () => {
+    window.open('/focus', 'multicam-focus');
+});
+
 refreshAlignment();
 setInterval(refreshAlignment, 1500);

@@ -15,6 +15,7 @@ from multicam.core.services import (
     AlignmentService,
     CameraOrientationStore,
     CameraProfileStore,
+    FocusService,
     LiveViewService,
 )
 from multicam.core.state import (
@@ -27,6 +28,7 @@ from multicam.platforms.raspberry_pi import RaspberryPiCameraProvisioner
 
 from .backend_loader import register_available_backends
 from .alignment_routes import create_alignment_blueprint
+from .focus_routes import create_focus_blueprint
 
 
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
@@ -55,6 +57,11 @@ service = LiveViewService(
     state=state,
     alignment_state=alignment_state,
     orientation_store=orientation_store,
+)
+focus_service = FocusService(
+    broker=broker,
+    orientation_store=orientation_store,
+    compositor=service.compositor,
 )
 
 pi_config_path = os.environ.get(
@@ -87,6 +94,11 @@ app.register_blueprint(create_alignment_blueprint(
     alignment_service=alignment_service,
     compositor=service.compositor,
     orientation_store=orientation_store,
+))
+app.register_blueprint(create_focus_blueprint(
+    manager=manager,
+    broker=broker,
+    focus_service=focus_service,
 ))
 
 
@@ -330,6 +342,9 @@ def save_camera_profile_api():
         if not capability.writable:
             continue
 
+        if capability.metadata.get("profile_persistent") is False:
+            continue
+
         # Most profile controls must be safe to change while streaming.
         # A capability can explicitly opt in to profile restoration through
         # the broker's stopped-stream reconfiguration path.
@@ -435,6 +450,13 @@ def load_camera_profile_api(profile_name):
             skipped.append({
                 "control_id": control_id,
                 "reason": "Read only",
+            })
+            continue
+
+        if capability.metadata.get("profile_persistent") is False:
+            skipped.append({
+                "control_id": control_id,
+                "reason": "Transient control",
             })
             continue
 

@@ -45,6 +45,15 @@
   alignment when preview geometry changes.
 - Keep Aravis/Xenics sensor resolution and ROI separate from preview sizing.
 
+### Focus utility
+
+- Added an independent Focus window that consumes shared `FrameBroker` frames.
+- Added camera selection, click-positioned ROI, bounded 5–15 Hz Tenengrad and
+  Laplacian feedback, session peak, recent trend, zoomed ROI, and edge view.
+- Added capability-driven Picamera2 manual lens position, single autofocus,
+  continuous autofocus, and AF-state reporting where supported.
+- Kept focus scores explicitly separate from calibrated MTF measurement.
+
 ### Repository foundation cleanup
 
 - Removed committed development snapshots; Git history remains authoritative.

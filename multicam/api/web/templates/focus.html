@@ -1,0 +1,92 @@
+<!doctype html>
+<html>
+<head>
+    <title>Multicam Focus</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/focus.css') }}">
+</head>
+<body>
+    <header>
+        <h2>Focus</h2>
+
+        <label>
+            Camera
+            <select id="focus-camera"></select>
+        </label>
+
+        <label>
+            ROI size
+            <select id="roi-size">
+                <option value="0.15">15%</option>
+                <option value="0.25" selected>25%</option>
+                <option value="0.40">40%</option>
+                <option value="1.00">Full frame</option>
+            </select>
+        </label>
+
+        <label>
+            ROI view
+            <select id="roi-view">
+                <option value="normal">Normal</option>
+                <option value="edges">Edges</option>
+            </select>
+        </label>
+
+        <button id="reset-peak">Reset peak</button>
+        <span id="camera-status">Loading cameras…</span>
+    </header>
+
+    <div id="message" class="message">
+        Click the live image to place the focus region.
+    </div>
+
+    <main>
+        <section class="live-panel">
+            <h3>Live camera — click to position ROI</h3>
+            <div id="focus-stage" class="image-stage">
+                <img id="focus-image" alt="Live focus camera">
+                <canvas id="roi-overlay"></canvas>
+                <span class="empty-label">Waiting for a streaming camera</span>
+            </div>
+        </section>
+
+        <aside>
+            <section class="metric-card primary-metric">
+                <span>Focus sharpness proxy</span>
+                <strong id="focus-score">—</strong>
+                <div class="meter"><div id="focus-meter"></div></div>
+                <div class="metric-grid">
+                    <span>Peak</span><b id="peak-score">—</b>
+                    <span>Current / peak</span><b id="peak-percent">—</b>
+                    <span>Laplacian</span><b id="laplacian-score">—</b>
+                    <span>ROI contrast</span><b id="contrast-score">—</b>
+                </div>
+            </section>
+
+            <section class="metric-card">
+                <h3>Recent focus trend</h3>
+                <canvas id="focus-chart"></canvas>
+            </section>
+
+            <section class="metric-card">
+                <h3>Focus ROI</h3>
+                <canvas id="roi-preview"></canvas>
+            </section>
+
+            <section class="metric-card">
+                <h3>Lens controls</h3>
+                <div id="focus-controls">
+                    Camera-reported focus controls will appear here.
+                </div>
+                <div id="autofocus-status" class="subtle"></div>
+            </section>
+        </aside>
+    </main>
+
+    <footer>
+        This is a relative sharpness aid, not a calibrated MTF measurement.
+        Compare scores only with the same camera, ROI, resolution, and imaging settings.
+    </footer>
+
+    <script src="{{ url_for('static', filename='js/focus.js') }}"></script>
+</body>
+</html>

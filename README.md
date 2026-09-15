@@ -17,6 +17,8 @@ Implemented:
 - persistent per-camera display orientation (rotate/flip), applied before alignment
 - manual target nudges with 1, 5, or 20 pixel steps in the Alignment window
 - safe, backend-reported live-preview resolution selection for Pi cameras
+- independent live Focus utility with selectable ROI, sharpness trend, peak
+  tracking, edge view, and capability-driven autofocus controls
 - capability-driven camera settings and saved camera profiles
 - Raspberry Pi CSI provisioning inspection
 - Flask web interface
@@ -85,6 +87,12 @@ that camera and clears active alignment, because registration coordinates use
 the preview pixels. The Pi camera backend currently exposes conservative
 preview sizes; Aravis/Xenics resolution and ROI are intentionally not changed
 through this control because they can alter scientific capture geometry.
+
+Open **Focus** from the main window to evaluate any streaming camera without
+interrupting the composite view. Click the live image to position the ROI and
+maximize the relative Tenengrad score while adjusting focus. Electronic AF and
+lens-position controls appear only when reported by the selected backend. See
+[`help/focus.md`](help/focus.md) for operating guidance and limitations.
 
 The existing launcher remains available:
 
