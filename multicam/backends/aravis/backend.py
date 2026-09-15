@@ -410,20 +410,22 @@ class AravisDevice(CameraDevice):
         except Exception:
             pass
 
-        add_boolean(
-            "cooling_enable",
-            "Cooling",
-            "CoolingEnable",
-        )
-
-        add_float(
-            "cooling_target",
-            "Cooling Target",
-            self._get_float_feature,
-            "CoolingTargetTemperature",
-            units="C",
-            bounds_feature="CoolingTargetTemperature",
-        )
+        # Cooling controls intentionally hidden from normal UI for now.
+        # Backend getter/setter support is retained for controlled testing.
+        # add_boolean(
+        #     "cooling_enable",
+        #     "Cooling",
+        #     "CoolingEnable",
+        # )
+        #
+        # add_float(
+        #     "cooling_target",
+        #     "Cooling Target",
+        #     self._get_float_feature,
+        #     "CoolingTargetTemperature",
+        #     units="C",
+        #     bounds_feature="CoolingTargetTemperature",
+        # )
 
         add_boolean(
             "reverse_x",
