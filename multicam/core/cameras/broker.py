@@ -107,6 +107,35 @@ class FrameBroker:
         for camera_id in camera_ids:
             self.stop(camera_id)
 
+    def reconfigure(
+        self,
+        camera_id: str,
+        configure: Callable[[CameraDevice], None],
+    ) -> None:
+        """Safely apply a stream-stopped camera configuration change."""
+        self.stop(camera_id)
+
+        with self._lock:
+            device = self._devices.get(camera_id)
+
+            if device is None:
+                raise KeyError(camera_id)
+
+            self._frames.pop(camera_id, None)
+            state = self._states[camera_id]
+            state.last_error = None
+            self._condition.notify_all()
+
+        try:
+            configure(device)
+        except Exception as exc:
+            with self._lock:
+                self._states[camera_id].last_error = repr(exc)
+                self._condition.notify_all()
+            raise
+
+        self.start(camera_id)
+
     def get_latest(self, camera_id: str) -> Frame | None:
         with self._lock:
             return self._frames.get(camera_id)

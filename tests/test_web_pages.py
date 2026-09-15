@@ -31,6 +31,7 @@ def test_alignment_page_renders_from_template():
     assert b"Camera Alignment" in response.data
     assert b'id="reference-stage"' in response.data
     assert b'id="target-stage"' in response.data
+    assert b'id="nudge-step"' in response.data
 
 
 def test_alignment_status_api_is_available_without_cameras():
@@ -59,3 +60,12 @@ def test_web_static_assets_are_available():
         response = client.get(path)
         assert response.status_code == 200
         assert response.data
+
+
+def test_camera_settings_script_includes_preview_resolution_control():
+    client = app.test_client()
+
+    response = client.get("/static/js/cameras.js")
+
+    assert response.status_code == 200
+    assert b"preview_resolution" in response.data

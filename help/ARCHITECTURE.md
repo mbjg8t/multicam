@@ -144,6 +144,9 @@ Implemented foundation:
 - Raspberry Pi camera provisioning inspection
 - generic registration state using target-to-reference 3x3 matrices
 - frozen-frame guided one-point alignment and reversible draft transforms
+- persistent per-camera display orientation applied before registration
+- safe capability-driven live-preview resolution changes with selected-camera
+  stream restart
 
 Planned:
 
@@ -177,6 +180,16 @@ registration matrix maps each target camera's source pixels into the selected
 reference camera's pixel space. The compositor applies the accepted transform
 after normalizing the source image to the reference canvas. Draft transforms
 are shared at runtime for live preview but can be rejected before acceptance.
+
+Camera orientation is a separate per-camera presentation setting. It corrects
+physical mounting (right-angle rotation and horizontal/vertical flip) before
+alignment and therefore invalidates active alignment coordinates when changed.
+
+Preview-output resolution is also capability-driven. A backend may advertise
+safe selectable preview sizes separately from sensor ROI, pixel format, or
+scientific acquisition mode. The broker stops, reconfigures, and restarts only
+the selected camera; active alignment is cleared because preview pixel
+coordinates have changed.
 
 The current broker retains the latest frame for live viewing. Its public
 boundary will evolve to support bounded preview subscribers and controlled,

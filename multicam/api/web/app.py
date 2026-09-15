@@ -13,11 +13,13 @@ from multicam.core.cameras import CameraManager, FrameBroker
 from multicam.core.provisioning import CameraProvisioningService
 from multicam.core.services import (
     AlignmentService,
+    CameraOrientationStore,
     CameraProfileStore,
     LiveViewService,
 )
 from multicam.core.state import (
     AlignmentStateStore,
+    CameraOrientation,
     CameraLayer,
     ViewStateStore,
 )
@@ -40,9 +42,11 @@ backend_load_results = register_available_backends(
 broker = FrameBroker()
 state = ViewStateStore()
 alignment_state = AlignmentStateStore()
+orientation_store = CameraOrientationStore()
 alignment_service = AlignmentService(
     broker=broker,
     state=alignment_state,
+    orientation_store=orientation_store,
 )
 
 service = LiveViewService(
@@ -50,6 +54,7 @@ service = LiveViewService(
     broker=broker,
     state=state,
     alignment_state=alignment_state,
+    orientation_store=orientation_store,
 )
 
 pi_config_path = os.environ.get(
@@ -81,6 +86,7 @@ app.register_blueprint(create_alignment_blueprint(
     alignment_state=alignment_state,
     alignment_service=alignment_service,
     compositor=service.compositor,
+    orientation_store=orientation_store,
 ))
 
 
@@ -324,10 +330,12 @@ def save_camera_profile_api():
         if not capability.writable:
             continue
 
-        # Camera Profiles v1 only stores controls that can
-        # safely be changed while the camera is already open.
-        if capability.metadata.get(
-            "requires_stream_restart"
+        # Most profile controls must be safe to change while streaming.
+        # A capability can explicitly opt in to profile restoration through
+        # the broker's stopped-stream reconfiguration path.
+        if (
+            capability.metadata.get("requires_stream_restart")
+            and not capability.metadata.get("profile_safe")
         ):
             continue
 
@@ -350,6 +358,7 @@ def save_camera_profile_api():
             "backend": info.backend,
         },
         "controls": controls,
+        "orientation": orientation_store.get(camera_id).as_dict(),
     }
 
     try:
@@ -407,6 +416,8 @@ def load_camera_profile_api(profile_name):
     applied = []
     skipped = []
     errors = []
+    orientation_applied = False
+    restart_controls = []
 
     for control_id, value in (
         profile.get("controls", {}).items()
@@ -430,6 +441,10 @@ def load_camera_profile_api(profile_name):
         if capability.metadata.get(
             "requires_stream_restart"
         ):
+            if capability.metadata.get("profile_safe"):
+                restart_controls.append((control_id, value))
+                continue
+
             skipped.append({
                 "control_id": control_id,
                 "reason": "Requires stream restart",
@@ -450,6 +465,53 @@ def load_camera_profile_api(profile_name):
                 "error": str(exc),
             })
 
+    if restart_controls:
+        try:
+            def apply_restart_controls(restart_device):
+                for control_id, value in restart_controls:
+                    restart_device.set_control(control_id, value)
+
+            broker.reconfigure(camera_id, apply_restart_controls)
+            applied.extend(
+                control_id
+                for control_id, _ in restart_controls
+            )
+            alignment_service.clear_frozen()
+            alignment_state.reset()
+        except Exception as exc:
+            for control_id, _ in restart_controls:
+                errors.append({
+                    "control_id": control_id,
+                    "error": str(exc),
+                })
+
+    orientation_data = profile.get("orientation")
+
+    if orientation_data is not None:
+        try:
+            orientation_store.set(
+                camera_id,
+                CameraOrientation(
+                    rotation_deg=int(
+                        orientation_data.get("rotation_deg", 0)
+                    ),
+                    flip_horizontal=bool(
+                        orientation_data.get("flip_horizontal", False)
+                    ),
+                    flip_vertical=bool(
+                        orientation_data.get("flip_vertical", False)
+                    ),
+                ),
+            )
+            alignment_service.clear_frozen()
+            alignment_state.reset()
+            orientation_applied = True
+        except (AttributeError, TypeError, ValueError, OSError) as exc:
+            errors.append({
+                "control_id": "orientation",
+                "error": str(exc),
+            })
+
     return jsonify({
         "success": len(errors) == 0,
         "profile": profile.get(
@@ -459,6 +521,7 @@ def load_camera_profile_api(profile_name):
         "applied": applied,
         "skipped": skipped,
         "errors": errors,
+        "orientation_applied": orientation_applied,
     })
 
 
@@ -538,6 +601,113 @@ def camera_capabilities_api(camera_id):
     return jsonify({
         "camera_id": camera_id,
         "capabilities": result,
+    })
+
+
+@app.route(
+    "/api/cameras/<path:camera_id>/orientation",
+    methods=["GET", "PATCH"],
+)
+def camera_orientation_api(camera_id):
+    known_ids = {
+        camera.id
+        for camera in manager.list_cameras()
+    }
+
+    if camera_id not in known_ids:
+        return jsonify({"error": "Unknown camera"}), 404
+
+    if request.method == "GET":
+        return jsonify({
+            "camera_id": camera_id,
+            "orientation": orientation_store.get(camera_id).as_dict(),
+        })
+
+    data = request.get_json(silent=True) or {}
+
+    try:
+        orientation = CameraOrientation(
+            rotation_deg=int(data.get("rotation_deg", 0)),
+            flip_horizontal=bool(data.get("flip_horizontal", False)),
+            flip_vertical=bool(data.get("flip_vertical", False)),
+        )
+        orientation_store.set(camera_id, orientation)
+    except (TypeError, ValueError, OSError) as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    # Orientation changes the coordinate system used by registration.
+    alignment_service.clear_frozen()
+    alignment_state.reset()
+
+    return jsonify({
+        "camera_id": camera_id,
+        "orientation": orientation.as_dict(),
+        "alignment_reset": True,
+    })
+
+
+@app.route(
+    "/api/cameras/<path:camera_id>/preview-resolution",
+    methods=["POST"],
+)
+def camera_preview_resolution_api(camera_id):
+    device = manager.get_device(camera_id)
+
+    if device is None:
+        return jsonify({"error": "Camera is not open"}), 404
+
+    data = request.get_json(silent=True) or {}
+    resolution = data.get("resolution")
+
+    if not isinstance(resolution, str):
+        return jsonify({
+            "error": "resolution must be a WIDTHxHEIGHT string"
+        }), 400
+
+    capability = next(
+        (
+            item
+            for item in device.get_capabilities()
+            if item.id == "preview_resolution"
+        ),
+        None,
+    )
+
+    if (
+        capability is None
+        or not capability.writable
+        or not capability.metadata.get("requires_stream_restart")
+    ):
+        return jsonify({
+            "error": "This camera has no switchable preview resolution"
+        }), 400
+
+    if capability.choices and resolution not in capability.choices:
+        return jsonify({"error": "Unsupported preview resolution"}), 400
+
+    try:
+        broker.reconfigure(
+            camera_id,
+            lambda restart_device: restart_device.set_control(
+                "preview_resolution",
+                resolution,
+            ),
+        )
+    except Exception as exc:
+        app.logger.exception(
+            "Unable to change preview resolution for %s",
+            camera_id,
+        )
+        return jsonify({"error": str(exc)}), 500
+
+    alignment_service.clear_frozen()
+    alignment_state.reset()
+
+    return jsonify({
+        "camera_id": camera_id,
+        "resolution": resolution,
+        "stream_restarting": True,
+        "alignment_reset": True,
     })
 
 

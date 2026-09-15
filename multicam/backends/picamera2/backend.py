@@ -25,19 +25,46 @@ class Picamera2Device(CameraDevice):
 
         self._camera = Picamera2(camera_num)
 
-        # Temporary Multicam test configuration.
-        # Later the stream/configuration service will own this.
-        config = self._camera.create_preview_configuration(
-            main={
-                "size": (1280, 960),
-                "format": "RGB888",
-            }
-        )
-
-        self._camera.configure(config)
+        self._preview_size = (1280, 960)
+        self._preview_sizes = self._supported_preview_sizes()
+        self._configure_preview(self._preview_size)
 
         self._running = False
         self._frame_number = 0
+
+    def _configure_preview(self, size):
+        config = self._camera.create_preview_configuration(
+            main={
+                "size": size,
+                "format": "RGB888",
+            }
+        )
+        self._camera.configure(config)
+
+    def _supported_preview_sizes(self):
+        """Return conservative output sizes validated by Picamera2 config."""
+        candidates = [
+            (640, 480),
+            (1280, 720),
+            (1280, 960),
+            (1920, 1080),
+        ]
+        supported = []
+
+        for size in candidates:
+            try:
+                self._camera.create_preview_configuration(
+                    main={"size": size, "format": "RGB888"}
+                )
+            except Exception:
+                continue
+
+            supported.append(size)
+
+        if self._preview_size not in supported:
+            supported.append(self._preview_size)
+
+        return supported
 
     def start(self):
         if self._running:
@@ -123,6 +150,26 @@ class Picamera2Device(CameraDevice):
                 )
             )
 
+        capabilities.append(
+            CameraCapability(
+                id="preview_resolution",
+                name="Live Preview Resolution",
+                type="choice",
+                readable=True,
+                writable=True,
+                value=self._format_preview_size(self._preview_size),
+                choices=[
+                    self._format_preview_size(size)
+                    for size in self._preview_sizes
+                ],
+                metadata={
+                    "requires_stream_restart": True,
+                    "profile_safe": True,
+                    "purpose": "preview_output",
+                },
+            )
+        )
+
         return capabilities
 
     def get_control(self, control_id):
@@ -133,6 +180,9 @@ class Picamera2Device(CameraDevice):
 
         if control_id == "gain":
             return metadata.get("AnalogueGain")
+
+        if control_id == "preview_resolution":
+            return self._format_preview_size(self._preview_size)
 
         raise KeyError(control_id)
 
@@ -155,7 +205,44 @@ class Picamera2Device(CameraDevice):
             )
             return
 
+        if control_id == "preview_resolution":
+            if self._running:
+                raise RuntimeError(
+                    "Preview resolution requires the stream to be stopped"
+                )
+
+            size = self._parse_preview_size(value)
+
+            if size not in self._preview_sizes:
+                raise ValueError(
+                    f"Unsupported preview resolution: {value}"
+                )
+
+            self._configure_preview(size)
+            self._preview_size = size
+            return
+
         raise KeyError(control_id)
+
+    @staticmethod
+    def _format_preview_size(size):
+        return f"{size[0]}x{size[1]}"
+
+    @staticmethod
+    def _parse_preview_size(value):
+        try:
+            width_text, height_text = str(value).lower().split("x", 1)
+            width = int(width_text.strip())
+            height = int(height_text.strip())
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "Preview resolution must be WIDTHxHEIGHT"
+            ) from exc
+
+        if width <= 0 or height <= 0:
+            raise ValueError("Preview dimensions must be positive")
+
+        return width, height
 
 
 class Picamera2Backend(CameraBackend):

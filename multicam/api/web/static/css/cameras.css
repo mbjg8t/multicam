@@ -212,6 +212,35 @@ button:disabled {
     margin: 4px 0 8px 0;
 }
 
+.camera-orientation .camera-info {
+    margin: -2px 0 9px;
+}
+
+.preview-resolution .camera-info {
+    margin: -2px 0 9px;
+}
+
+.orientation-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+}
+
+.orientation-controls label {
+    color: #ddd;
+}
+
+.orientation-controls select {
+    margin-left: 5px;
+}
+
+.orientation-controls button {
+    width: auto;
+    min-width: 120px;
+    padding: 6px 10px;
+}
+
 .control-row {
     display: grid;
     grid-template-columns:

@@ -14,6 +14,9 @@ Implemented:
 - generic 0..N camera layers and live compositing
 - live camera-status strip with selectable alignment reference and target
 - frozen-frame, guided one-point translation alignment with preview and undo
+- persistent per-camera display orientation (rotate/flip), applied before alignment
+- manual target nudges with 1, 5, or 20 pixel steps in the Alignment window
+- safe, backend-reported live-preview resolution selection for Pi cameras
 - capability-driven camera settings and saved camera profiles
 - Raspberry Pi CSI provisioning inspection
 - Flask web interface
@@ -68,6 +71,18 @@ same physical feature first in the reference and then in the target, inspect
 the 50% overlay, and accept or reject the draft. See
 [`help/alignment.md`](help/alignment.md) for the complete workflow and current
 limitations.
+
+Set a camera's permanent display orientation in **Cameras → Settings** before
+aligning it. Orientation is stored by camera ID and included when saving a
+camera profile. The Alignment window provides manual arrow nudges for the
+selected target camera; these are part of registration, not camera orientation.
+
+When a camera's backend reports supported live-preview sizes, choose one in
+**Cameras → Settings → Live Preview Resolution**. Applying a size restarts only
+that camera and clears active alignment, because registration coordinates use
+the preview pixels. The Pi camera backend currently exposes conservative
+preview sizes; Aravis/Xenics resolution and ROI are intentionally not changed
+through this control because they can alter scientific capture geometry.
 
 The existing launcher remains available:
 

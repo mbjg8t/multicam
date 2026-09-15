@@ -928,6 +928,107 @@ function cameraProfileBar(cameraId, profiles) {
 }
 
 
+function cameraOrientationSection(cameraId, orientation) {
+    const prefix = 'orientation-' + encodeURIComponent(cameraId);
+
+    return `
+        <div class="settings-section camera-orientation">
+            <div class="settings-section-title">
+                Display Orientation
+            </div>
+
+            <div class="camera-info">
+                Applied before alignment and live compositing. Changing it
+                clears active alignment transforms.
+            </div>
+
+            <div class="orientation-controls">
+                <label>
+                    Rotate
+                    <select id="${prefix}-rotation">
+                        <option value="0" ${orientation.rotation_deg === 0 ? 'selected' : ''}>0°</option>
+                        <option value="90" ${orientation.rotation_deg === 90 ? 'selected' : ''}>90° clockwise</option>
+                        <option value="180" ${orientation.rotation_deg === 180 ? 'selected' : ''}>180°</option>
+                        <option value="270" ${orientation.rotation_deg === 270 ? 'selected' : ''}>270° clockwise</option>
+                    </select>
+                </label>
+
+                <label>
+                    <input
+                        id="${prefix}-flip-horizontal"
+                        type="checkbox"
+                        ${orientation.flip_horizontal ? 'checked' : ''}
+                    >
+                    Flip horizontal
+                </label>
+
+                <label>
+                    <input
+                        id="${prefix}-flip-vertical"
+                        type="checkbox"
+                        ${orientation.flip_vertical ? 'checked' : ''}
+                    >
+                    Flip vertical
+                </label>
+
+                <button onclick="setCameraOrientation(
+                    '${escapeJs(cameraId)}'
+                )">
+                    Apply orientation
+                </button>
+            </div>
+        </div>
+    `;
+}
+
+
+function previewResolutionSection(cameraId, capability) {
+    if (!capability) {
+        return '';
+    }
+
+    const selectId =
+        'preview-resolution-' + encodeURIComponent(cameraId);
+    const value = (
+        capability.current_value ?? capability.value ?? ''
+    );
+    const choices = capability.choices || [];
+    const options = choices.map(choice => `
+        <option
+            value="${escapeHtml(choice)}"
+            ${choice === value ? 'selected' : ''}
+        >
+            ${escapeHtml(choice)}
+        </option>
+    `).join('');
+
+    return `
+        <div class="settings-section preview-resolution">
+            <div class="settings-section-title">
+                Live Preview Resolution
+            </div>
+
+            <div class="camera-info">
+                Restarts only this camera stream. It clears active alignment
+                because frame geometry changes.
+            </div>
+
+            <div class="orientation-controls">
+                <select id="${selectId}">
+                    ${options}
+                </select>
+
+                <button onclick="setPreviewResolution(
+                    '${escapeJs(cameraId)}'
+                )">
+                    Apply resolution
+                </button>
+            </div>
+        </div>
+    `;
+}
+
+
 function selectedCameraProfile(cameraId) {
     const select = document.getElementById(
         cameraProfileSelectId(cameraId)
@@ -1084,11 +1185,18 @@ async function loadCameraSettings(cameraId) {
     }
 
     try {
-        const data = await api(
-            '/api/cameras/' +
-            encodeURIComponent(cameraId) +
-            '/capabilities'
-        );
+        const [data, orientationData] = await Promise.all([
+            api(
+                '/api/cameras/' +
+                encodeURIComponent(cameraId) +
+                '/capabilities'
+            ),
+            api(
+                '/api/cameras/' +
+                encodeURIComponent(cameraId) +
+                '/orientation'
+            )
+        ]);
 
         if (!openCameraSettings.has(cameraId)) {
             return;
@@ -1107,14 +1215,9 @@ async function loadCameraSettings(cameraId) {
                 capability.type !== 'choice' &&
                 capability.id !== 'pixel_format'
         );
-
-        if (supported.length === 0) {
-            currentPanel.innerHTML =
-                '<div class="settings-message">' +
-                'No camera controls reported.' +
-                '</div>';
-            return;
-        }
+        const previewResolution = data.capabilities.find(
+            capability => capability.id === 'preview_resolution'
+        );
 
         const sections = {
             Image: [],
@@ -1152,6 +1255,23 @@ async function loadCameraSettings(cameraId) {
             cameraId,
             profiles
         );
+
+        html += cameraOrientationSection(
+            cameraId,
+            orientationData.orientation
+        );
+
+        html += previewResolutionSection(
+            cameraId,
+            previewResolution
+        );
+
+        if (supported.length === 0) {
+            html +=
+                '<div class="settings-message">' +
+                'No hardware camera controls reported.' +
+                '</div>';
+        }
 
         for (const [sectionName, capabilities] of
             Object.entries(sections)) {
@@ -1209,6 +1329,90 @@ async function loadCameraSettings(cameraId) {
             'Unable to read camera settings: ' +
             escapeHtml(error.message) +
             '</div>';
+    }
+}
+
+
+async function setCameraOrientation(cameraId) {
+    const prefix = 'orientation-' + encodeURIComponent(cameraId);
+    const rotation = document.getElementById(prefix + '-rotation');
+    const horizontal = document.getElementById(
+        prefix + '-flip-horizontal'
+    );
+    const vertical = document.getElementById(prefix + '-flip-vertical');
+
+    if (!rotation || !horizontal || !vertical) {
+        return;
+    }
+
+    try {
+        await api(
+            '/api/cameras/' +
+            encodeURIComponent(cameraId) +
+            '/orientation',
+            {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    rotation_deg: Number(rotation.value),
+                    flip_horizontal: horizontal.checked,
+                    flip_vertical: vertical.checked
+                })
+            }
+        );
+
+        showStatus('Orientation saved; active alignment reset');
+        await loadCameraSettings(cameraId);
+
+    } catch (error) {
+        console.error(error);
+        showStatus('Unable to update camera orientation');
+    }
+}
+
+
+async function setPreviewResolution(cameraId) {
+    const select = document.getElementById(
+        'preview-resolution-' + encodeURIComponent(cameraId)
+    );
+
+    if (!select || !select.value) {
+        return;
+    }
+
+    if (!window.confirm(
+        `Restart this camera using ${select.value} live preview resolution? ` +
+        'Current alignment will be cleared.'
+    )) {
+        return;
+    }
+
+    try {
+        await api(
+            '/api/cameras/' +
+            encodeURIComponent(cameraId) +
+            '/preview-resolution',
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    resolution: select.value
+                })
+            }
+        );
+
+        showStatus(
+            'Preview resolution applied; stream restarting and alignment reset'
+        );
+        await refresh();
+
+    } catch (error) {
+        console.error(error);
+        showStatus('Unable to change live preview resolution');
     }
 }
 

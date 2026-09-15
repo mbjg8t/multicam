@@ -24,6 +24,23 @@
 - Added mode-mismatch protection and generic 3x3 registration matrices for
   future similarity, affine, and homography alignment.
 
+### Camera orientation and manual alignment
+
+- Added persistent per-camera rotation and horizontal/vertical flip settings.
+- Applied camera orientation before both live compositing and registration.
+- Added orientation to saved camera profiles.
+- Added manual target-camera nudge controls in the Alignment window with 1,
+  5, and 20 pixel steps.
+- Clear frozen and active alignment state when orientation changes.
+
+### Live preview resolution
+
+- Added capability-driven selectable live-preview resolutions for Picamera2
+  devices.
+- Restart only the changed camera through the frame broker and clear active
+  alignment when preview geometry changes.
+- Keep Aravis/Xenics sensor resolution and ROI separate from preview sizing.
+
 ### Repository foundation cleanup
 
 - Removed committed development snapshots; Git history remains authoritative.
