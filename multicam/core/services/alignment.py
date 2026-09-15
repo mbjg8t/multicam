@@ -5,6 +5,8 @@ from threading import RLock
 from typing import Any
 import copy
 
+import numpy as np
+
 from multicam.core.cameras import Frame, FrameBroker
 from multicam.core.state import AlignmentStateStore, RegistrationTransform
 
@@ -18,6 +20,17 @@ class FrozenFrameInfo:
     height: int
     pixel_format: str | None
     frame_number: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class AutoAlignmentResult:
+    reference_point: tuple[float, float]
+    target_point: tuple[float, float]
+    score: float
+    uniqueness: float
+    confidence: str
+    patch_size: int
+    transform: RegistrationTransform
 
 
 class AlignmentService:
@@ -104,6 +117,97 @@ class AlignmentService:
         self.state.set_draft(target_id, transform)
         return transform
 
+    def auto_align(
+        self,
+        *,
+        reference_point: tuple[float, float],
+        max_dimension: int = 512,
+        patch_size: int = 51,
+    ) -> AutoAlignmentResult:
+        """Find a structural match in the selected target and create a draft."""
+        current = self.state.get()
+        reference_id = current.reference_camera_id
+        target_id = current.target_camera_id
+
+        if reference_id is None or target_id is None:
+            raise ValueError("Select reference and target cameras first")
+
+        with self._lock:
+            reference = self._frozen_frames.get(reference_id)
+            target = self._frozen_frames.get(target_id)
+
+        if reference is None or target is None:
+            raise ValueError("Freeze reference and target frames first")
+
+        reference_image = self._oriented_gray(reference.image, reference_id)
+        target_image = self._oriented_gray(target.image, target_id)
+        reference_size = (reference_image.shape[1], reference_image.shape[0])
+        target_size = (target_image.shape[1], target_image.shape[0])
+        self._validate_point(reference_point, reference_size, "reference")
+
+        work_width, work_height = self._working_size(
+            reference_size,
+            max_dimension,
+        )
+        reference_work = self._resize_gray(
+            reference_image,
+            work_width,
+            work_height,
+        )
+        target_work = self._resize_gray(
+            target_image,
+            work_width,
+            work_height,
+        )
+        reference_edges = self._edge_map(reference_work)
+        target_edges = self._edge_map(target_work)
+
+        work_point = (
+            reference_point[0] * work_width / reference_size[0],
+            reference_point[1] * work_height / reference_size[1],
+        )
+        effective_patch = self._effective_patch_size(
+            patch_size,
+            reference_edges.shape,
+            work_point,
+        )
+        half = effective_patch // 2
+        center_x = int(round(work_point[0]))
+        center_y = int(round(work_point[1]))
+        template = reference_edges[
+            center_y - half:center_y + half + 1,
+            center_x - half:center_x + half + 1,
+        ]
+
+        match_x, match_y, score, uniqueness = self._normalized_match(
+            target_edges,
+            template,
+        )
+        matched_work_point = (match_x + half, match_y + half)
+        matched_reference_point = (
+            matched_work_point[0] * reference_size[0] / work_width,
+            matched_work_point[1] * reference_size[1] / work_height,
+        )
+        target_point = (
+            matched_reference_point[0] * target_size[0] / reference_size[0],
+            matched_reference_point[1] * target_size[1] / reference_size[1],
+        )
+        confidence = self._confidence_label(score, uniqueness)
+        transform = self.set_point_pair(
+            reference_point=reference_point,
+            target_point=target_point,
+        )
+
+        return AutoAlignmentResult(
+            reference_point=reference_point,
+            target_point=target_point,
+            score=score,
+            uniqueness=uniqueness,
+            confidence=confidence,
+            patch_size=effective_patch,
+            transform=transform,
+        )
+
     def nudge(
         self,
         *,
@@ -181,6 +285,209 @@ class AlignmentService:
                 width, height = height, width
 
         return int(width), int(height)
+
+    def _oriented_gray(self, image: Any, camera_id: str) -> np.ndarray:
+        array = np.asarray(image)
+
+        if array.ndim == 3 and array.shape[2] >= 3:
+            gray = (
+                array[..., 0].astype(np.float32) * 0.299
+                + array[..., 1].astype(np.float32) * 0.587
+                + array[..., 2].astype(np.float32) * 0.114
+            )
+        elif array.ndim == 2:
+            gray = array.astype(np.float32)
+        else:
+            raise ValueError(f"Unsupported image shape: {array.shape}")
+
+        if self.orientation_store is None:
+            return gray
+
+        orientation = self.orientation_store.get(camera_id)
+
+        if orientation.rotation_deg == 90:
+            gray = np.rot90(gray, k=3)
+        elif orientation.rotation_deg == 180:
+            gray = np.rot90(gray, k=2)
+        elif orientation.rotation_deg == 270:
+            gray = np.rot90(gray, k=1)
+
+        if orientation.flip_horizontal:
+            gray = np.fliplr(gray)
+        if orientation.flip_vertical:
+            gray = np.flipud(gray)
+
+        return gray
+
+    @staticmethod
+    def _working_size(
+        size: tuple[int, int],
+        max_dimension: int,
+    ) -> tuple[int, int]:
+        width, height = size
+        scale = min(1.0, max_dimension / max(width, height))
+        return max(1, int(round(width * scale))), max(
+            1,
+            int(round(height * scale)),
+        )
+
+    @staticmethod
+    def _resize_gray(
+        image: np.ndarray,
+        width: int,
+        height: int,
+    ) -> np.ndarray:
+        source_height, source_width = image.shape
+        x_indices = np.linspace(0, source_width - 1, width).astype(np.int32)
+        y_indices = np.linspace(0, source_height - 1, height).astype(np.int32)
+        return image[y_indices[:, None], x_indices[None, :]]
+
+    @staticmethod
+    def _edge_map(image: np.ndarray) -> np.ndarray:
+        low = float(np.percentile(image, 2))
+        high = float(np.percentile(image, 98))
+
+        if high <= low:
+            raise ValueError("Selected frame has insufficient contrast")
+
+        normalized = np.clip((image - low) / (high - low), 0.0, 1.0)
+        gradient_y, gradient_x = np.gradient(normalized)
+        edges = np.hypot(gradient_x, gradient_y).astype(np.float32)
+        structured = edges[edges > 1e-6]
+
+        if structured.size == 0:
+            raise ValueError("Selected frame has insufficient structure")
+
+        edge_scale = float(np.percentile(structured, 90))
+        return np.clip(edges / edge_scale, 0.0, 1.0)
+
+    @staticmethod
+    def _effective_patch_size(
+        requested: int,
+        image_shape: tuple[int, int],
+        point: tuple[float, float],
+    ) -> int:
+        height, width = image_shape
+        center_x = int(round(point[0]))
+        center_y = int(round(point[1]))
+        border = min(
+            center_x,
+            center_y,
+            width - 1 - center_x,
+            height - 1 - center_y,
+        )
+        maximum = 2 * border + 1
+        size = min(int(requested), maximum, width, height)
+
+        if size % 2 == 0:
+            size -= 1
+        if size < 15:
+            raise ValueError(
+                "Choose a reference feature farther from the image edge"
+            )
+
+        return size
+
+    @classmethod
+    def _normalized_match(
+        cls,
+        image: np.ndarray,
+        template: np.ndarray,
+    ) -> tuple[int, int, float, float]:
+        template = template.astype(np.float32)
+        template = template - float(template.mean())
+        template_energy = float(np.sum(template * template))
+
+        if template_energy <= 1e-6:
+            raise ValueError(
+                "The selected reference area has insufficient structure"
+            )
+
+        image_height, image_width = image.shape
+        patch_height, patch_width = template.shape
+
+        if patch_height > image_height or patch_width > image_width:
+            raise ValueError("Reference patch is larger than target frame")
+
+        fft_shape = (
+            cls._next_power_of_two(image_height + patch_height - 1),
+            cls._next_power_of_two(image_width + patch_width - 1),
+        )
+        correlation = np.fft.irfft2(
+            np.fft.rfft2(image, fft_shape)
+            * np.fft.rfft2(template[::-1, ::-1], fft_shape),
+            fft_shape,
+        )
+        numerator = correlation[
+            patch_height - 1:image_height,
+            patch_width - 1:image_width,
+        ]
+        window_sum = cls._window_sums(image, patch_height, patch_width)
+        window_squared_sum = cls._window_sums(
+            image * image,
+            patch_height,
+            patch_width,
+        )
+        sample_count = float(patch_height * patch_width)
+        window_energy = np.maximum(
+            window_squared_sum - (window_sum * window_sum / sample_count),
+            0.0,
+        )
+        denominator = np.sqrt(window_energy * template_energy)
+        scores = np.full(numerator.shape, -1.0, dtype=np.float32)
+        np.divide(
+            numerator,
+            denominator,
+            out=scores,
+            where=denominator > 1e-6,
+        )
+        flat_index = int(np.argmax(scores))
+        match_y, match_x = np.unravel_index(flat_index, scores.shape)
+        score = float(np.clip(scores[match_y, match_x], -1.0, 1.0))
+        alternatives = scores.copy()
+        exclusion_radius = max(3, min(patch_height, patch_width) // 3)
+        alternatives[
+            max(0, match_y - exclusion_radius):match_y + exclusion_radius + 1,
+            max(0, match_x - exclusion_radius):match_x + exclusion_radius + 1,
+        ] = -1.0
+        second_score = float(np.max(alternatives))
+        uniqueness = max(0.0, score - second_score)
+
+        if score < 0.10:
+            raise ValueError(
+                "No reliable structural match was found; use manual matching"
+            )
+
+        return int(match_x), int(match_y), score, uniqueness
+
+    @staticmethod
+    def _window_sums(
+        image: np.ndarray,
+        height: int,
+        width: int,
+    ) -> np.ndarray:
+        integral = np.pad(
+            image.astype(np.float64),
+            ((1, 0), (1, 0)),
+        ).cumsum(axis=0).cumsum(axis=1)
+        return (
+            integral[height:, width:]
+            - integral[:-height, width:]
+            - integral[height:, :-width]
+            + integral[:-height, :-width]
+        )
+
+    @staticmethod
+    def _next_power_of_two(value: int) -> int:
+        return 1 << max(0, value - 1).bit_length()
+
+    @staticmethod
+    def _confidence_label(score: float, uniqueness: float) -> str:
+        if score >= 0.65 and uniqueness >= 0.08:
+            return "high"
+        if score >= 0.40 and uniqueness >= 0.04:
+            return "medium"
+        return "low"
 
     def _frame_info(self, frame: Frame) -> FrozenFrameInfo:
         width, height = self._frame_size(frame, frame.camera_id)

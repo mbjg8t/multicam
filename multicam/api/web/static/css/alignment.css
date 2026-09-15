@@ -18,6 +18,13 @@ header h2 {
     margin: 0 auto 0 0;
 }
 
+.auto-option {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+}
+
 label {
     color: #bbb;
     font-size: 12px;

@@ -143,7 +143,7 @@ Implemented foundation:
 - camera profiles
 - Raspberry Pi camera provisioning inspection
 - generic registration state using target-to-reference 3x3 matrices
-- frozen-frame guided one-point alignment and reversible draft transforms
+- frozen-frame one-click structural matching and reversible draft transforms
 - persistent per-camera display orientation applied before registration
 - safe capability-driven live-preview resolution changes with selected-camera
   stream restart
@@ -180,6 +180,12 @@ registration matrix maps each target camera's source pixels into the selected
 reference camera's pixel space. The compositor applies the accepted transform
 after normalizing the source image to the reference canvas. Draft transforms
 are shared at runtime for live preview but can be rejected before acceptance.
+
+Automatic point matching operates on reduced gradient maps and normalized
+correlation, keeping it portable and less dependent on spectral brightness.
+The automatic result is only a draft; reported confidence, overlay inspection,
+manual point correction, nudging, acceptance, and undo remain operator-facing
+safeguards.
 
 Camera orientation is a separate per-camera presentation setting. It corrects
 physical mounting (right-angle rotation and horizontal/vertical flip) before

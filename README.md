@@ -13,7 +13,7 @@ Implemented:
 - central concurrent acquisition through `CameraManager` and `FrameBroker`
 - generic 0..N camera layers and live compositing
 - live camera-status strip with selectable alignment reference and target
-- frozen-frame, guided one-point translation alignment with preview and undo
+- one-click structural auto-alignment with confidence, preview, and undo
 - persistent per-camera display orientation (rotate/flip), applied before alignment
 - manual target nudges with 1, 5, or 20 pixel steps in the Alignment window
 - safe, backend-reported live-preview resolution selection for Pi cameras
@@ -66,9 +66,11 @@ Open `http://<pi-address>:5000` from another computer on the same network.
 
 The main page shows every discovered camera and whether it is streaming with
 frames. Choose **Align to** (the fixed reference) and **Transform** (the camera
-that will move), then open **Alignment**. Freeze the running cameras, click the
-same physical feature first in the reference and then in the target, inspect
-the 50% overlay, and accept or reject the draft. See
+that will move), then open **Alignment**. Freeze the running cameras and click a
+distinctive feature in the reference image. Multicam searches the selected
+target using edge structure, reports match confidence, and creates a 50%
+overlay draft. Accept it, nudge it, or click the target manually to correct the
+match. See
 [`help/alignment.md`](help/alignment.md) for the complete workflow and current
 limitations.
 

@@ -19,6 +19,11 @@
         </label>
 
         <button id="freeze">Freeze all running cameras</button>
+
+        <label class="auto-option">
+            <input id="auto-match" type="checkbox" checked disabled>
+            Auto-find target
+        </label>
     </header>
 
     <div id="message" class="message">
@@ -27,7 +32,7 @@
 
     <main>
         <section class="frame-panel">
-            <h3>Reference — click the feature to match</h3>
+            <h3>Reference — click a distinctive feature to auto-match</h3>
             <div id="reference-stage" class="image-stage">
                 <img id="reference-image" alt="Frozen reference frame">
                 <span class="marker"></span>
@@ -36,7 +41,7 @@
         </section>
 
         <section class="frame-panel">
-            <h3>Target — click the same feature</h3>
+            <h3>Target — automatic match or manual correction</h3>
             <div id="target-stage" class="image-stage">
                 <img id="target-image" alt="Frozen target frame">
                 <span class="marker"></span>
@@ -48,7 +53,7 @@
             <h3>50% overlay preview</h3>
             <div class="image-stage">
                 <img id="preview-image" alt="Alignment overlay preview">
-                <span class="empty-label">Matching clicks create a preview</span>
+                <span class="empty-label">An automatic or manual match creates a preview</span>
             </div>
         </section>
     </main>

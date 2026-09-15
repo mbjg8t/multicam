@@ -44,7 +44,7 @@ def create_alignment_blueprint(
             "created_at": transform.created_at,
         }
 
-    def serialize_alignment():
+    def serialize_alignment(auto_match=None):
         current = alignment_state.get()
         frozen = {
             item.camera_id: item
@@ -112,7 +112,7 @@ def create_alignment_blueprint(
                 "transform": serialize_transform(draft or accepted),
             })
 
-        return {
+        result = {
             "reference_camera_id": current.reference_camera_id,
             "target_camera_id": current.target_camera_id,
             "cameras": cameras,
@@ -132,6 +132,24 @@ def create_alignment_blueprint(
                 frozen_items
             ),
         }
+
+        if auto_match is not None:
+            result["auto_match"] = {
+                "reference_point": {
+                    "x": auto_match.reference_point[0],
+                    "y": auto_match.reference_point[1],
+                },
+                "target_point": {
+                    "x": auto_match.target_point[0],
+                    "y": auto_match.target_point[1],
+                },
+                "score": auto_match.score,
+                "uniqueness": auto_match.uniqueness,
+                "confidence": auto_match.confidence,
+                "patch_size": auto_match.patch_size,
+            }
+
+        return result
 
     @blueprint.route("/alignment")
     def alignment_page():
@@ -223,6 +241,23 @@ def create_alignment_blueprint(
             return jsonify({"error": str(exc)}), 400
 
         return jsonify(serialize_alignment())
+
+    @blueprint.route("/api/alignment/auto-point", methods=["POST"])
+    def alignment_auto_point_api():
+        data = request.get_json(silent=True) or {}
+
+        try:
+            reference_point = (
+                float(data["reference_point"]["x"]),
+                float(data["reference_point"]["y"]),
+            )
+            auto_match = alignment_service.auto_align(
+                reference_point=reference_point,
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        return jsonify(serialize_alignment(auto_match=auto_match))
 
     @blueprint.route("/api/alignment/nudge", methods=["POST"])
     def alignment_nudge_api():

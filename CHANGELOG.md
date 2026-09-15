@@ -23,6 +23,10 @@
 - Kept camera registration separate from ordinary display-layer transforms.
 - Added mode-mismatch protection and generic 3x3 registration matrices for
   future similarity, affine, and homography alignment.
+- Added one-click structural matching from a selected reference point to the
+  target camera, with high/medium/low confidence reporting.
+- Preserved manual target clicking, draft preview, nudging, rejection, and undo
+  as correction and validation paths.
 
 ### Camera orientation and manual alignment
 

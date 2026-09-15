@@ -69,3 +69,13 @@ def test_camera_settings_script_includes_preview_resolution_control():
 
     assert response.status_code == 200
     assert b"preview_resolution" in response.data
+
+
+def test_alignment_script_includes_auto_match_workflow():
+    client = app.test_client()
+
+    response = client.get("/static/js/alignment.js")
+
+    assert response.status_code == 200
+    assert b"/api/alignment/auto-point" in response.data
+    assert b"Auto match:" in response.data

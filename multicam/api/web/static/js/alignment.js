@@ -1,6 +1,7 @@
 let alignmentState = null;
 let referencePoint = null;
 let targetPoint = null;
+let lastAutoMatch = null;
 
 const referenceSelect = document.getElementById('reference-camera');
 const targetSelect = document.getElementById('target-camera');
@@ -81,6 +82,7 @@ function updateControls() {
     document.querySelectorAll('.nudge').forEach(button => {
         button.disabled = !canNudge;
     });
+    document.getElementById('auto-match').disabled = !canNudge;
 
     const summary = document.getElementById('transform-summary');
     if (target?.transform) {
@@ -100,7 +102,17 @@ function imageUrl(cameraId) {
 
 function loadImage(image, url) {
     image.classList.remove('loaded');
-    image.onload = () => image.classList.add('loaded');
+    image.onload = () => {
+        image.classList.add('loaded');
+
+        if (image === targetImage && targetPoint) {
+            showMarkerAtImagePoint(
+                document.getElementById('target-stage'),
+                targetImage,
+                targetPoint
+            );
+        }
+    };
     image.src = url;
 }
 
@@ -111,6 +123,7 @@ function clearMarker(stageId) {
 function clearPoints() {
     referencePoint = null;
     targetPoint = null;
+    lastAutoMatch = null;
     clearMarker('reference-stage');
     clearMarker('target-stage');
 }
@@ -222,12 +235,59 @@ function showMarker(stage, point) {
     marker.style.display = 'block';
 }
 
+function showMarkerAtImagePoint(stage, image, point) {
+    if (!image.classList.contains('loaded')) {
+        return;
+    }
+
+    const rendered = displayedImageRect(stage, image);
+    showMarker(stage, {
+        markerX: rendered.left + point.x * rendered.width / image.naturalWidth,
+        markerY: rendered.top + point.y * rendered.height / image.naturalHeight
+    });
+}
+
+async function submitAutoPoint() {
+    try {
+        showMessage('Searching the target for the matching structure...');
+        alignmentState = await api('/api/alignment/auto-point', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({reference_point: referencePoint})
+        });
+        lastAutoMatch = alignmentState.auto_match;
+        targetPoint = lastAutoMatch.target_point;
+        showMarkerAtImagePoint(
+            document.getElementById('target-stage'),
+            targetImage,
+            targetPoint
+        );
+        updateControls();
+        loadImage(previewImage, `/alignment/preview?t=${Date.now()}`);
+        const score = (lastAutoMatch.score * 100).toFixed(0);
+        showMessage(
+            `Auto match: ${lastAutoMatch.confidence} confidence ` +
+            `(${score}% structural correlation). Inspect the overlay, ` +
+            'then accept, nudge, or click the target manually to correct it.'
+        );
+    } catch (error) {
+        lastAutoMatch = null;
+        targetPoint = null;
+        clearMarker('target-stage');
+        showMessage(
+            `${error.message}. Click the matching target feature manually.`,
+            true
+        );
+    }
+}
+
 async function submitPointPair() {
     if (!referencePoint || !targetPoint) {
         return;
     }
 
     try {
+        lastAutoMatch = null;
         alignmentState = await api('/api/alignment/point-pair', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
@@ -258,8 +318,13 @@ function installPointHandler(stageId, image, isReference) {
         if (isReference) {
             referencePoint = payloadPoint;
             targetPoint = null;
+            lastAutoMatch = null;
             clearMarker('target-stage');
-            showMessage('Now click the same physical feature in the target image.');
+            if (document.getElementById('auto-match').checked) {
+                await submitAutoPoint();
+            } else {
+                showMessage('Now click the same physical feature in the target image.');
+            }
         } else {
             if (!referencePoint) {
                 showMessage('Click the reference feature first.', true);
@@ -315,7 +380,7 @@ document.getElementById('freeze').addEventListener('click', async () => {
         showMessage(
             `Frozen ${alignmentState.frozen_frames.length} cameras; ` +
             `maximum timestamp skew ${skewMs.toFixed(1)} ms. ` +
-            'Click a feature in the reference image.'
+            'Click a distinctive feature in the reference image to auto-match it.'
         );
     } catch (error) {
         showMessage(error.message, true);

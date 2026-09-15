@@ -92,6 +92,12 @@ def test_guided_alignment_api_workflow(tmp_path):
     assert response.status_code == 200
     assert response.get_json()["timestamp_skew_ns"] == 1_000
 
+    response = client.post("/api/alignment/auto-point", json={
+        "reference_point": {"x": 30, "y": 20},
+    })
+    assert response.status_code == 400
+    assert "contrast" in response.get_json()["error"]
+
     response = client.post("/api/alignment/point-pair", json={
         "reference_point": {"x": 30, "y": 20},
         "target_point": {"x": 10, "y": 5},

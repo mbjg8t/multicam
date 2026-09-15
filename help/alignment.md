@@ -17,7 +17,7 @@ Orientation** before starting alignment. Rotation and flip are saved per camera
 and are applied before registration. Changing them clears current runtime
 alignment, deliberately, because the old pixel coordinates are no longer valid.
 
-## Guided one-point workflow
+## One-click automatic workflow
 
 1. Confirm that both cameras have green status dots on the main page.
 2. Select the reference camera under **Align to**.
@@ -25,13 +25,22 @@ alignment, deliberately, because the old pixel coordinates are no longer valid.
 4. Open **Alignment** and choose **Freeze all running cameras**.
 5. Review the displayed maximum timestamp skew. Keep the scene still when
    cameras are not hardware-synchronized.
-6. Click a distinct physical feature in the frozen reference image.
-7. Click the same feature in the frozen target image.
-8. Inspect the 50% overlay preview and the X/Y movement.
+6. Leave **Auto-find target** enabled and click a distinctive physical feature
+   in the frozen reference image.
+7. Review the target marker and the reported structural-match confidence.
+8. Inspect the 50% overlay preview and the X/Y movement. If the automatic match
+   is wrong, click the correct target feature manually.
 9. Use the arrow buttons to nudge the target by 1, 5, or 20 reference-canvas
    pixels when needed. Nudges create a draft, just like matching points.
 10. Choose **Accept**, **Reject**, or **Undo accepted**.
 11. Select the next target and repeat. The reference remains fixed.
+
+The automatic matcher downsamples the display frames, converts them to gradient
+structure, and searches the complete target frame using normalized
+correlation. This is more useful across visible, NIR, SWIR, and thermal imagery
+than matching raw brightness. It reports confidence but always requires the
+operator to inspect and accept the draft. Disable **Auto-find target** to use
+the original two-click workflow.
 
 One matching point calculates translation. The target is first normalized to
 the reference frame size, so cameras with different resolutions are supported.
@@ -56,5 +65,5 @@ scale beyond this normal frame-size normalization.
   all alignments** before choosing a different reference.
 - Frozen frames are the latest available frames and may not be simultaneous.
   Timestamp skew is reported for this reason.
-- Automatic edge-based refinement, two-point rotation/scale, alignment-profile
+- Multi-feature refinement, two-point rotation/scale, alignment-profile
   persistence, and reference rebasing are the next planned stages.
