@@ -1,0 +1,158 @@
+html, body {
+    margin: 0;
+    min-height: 100%;
+    background: #111;
+    color: #eee;
+    font-family: Arial, sans-serif;
+}
+
+header, footer {
+    padding: 10px 14px;
+    background: #222;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+header h2 {
+    margin: 0 auto 0 0;
+}
+
+label {
+    color: #bbb;
+    font-size: 12px;
+}
+
+select {
+    display: block;
+    min-width: 190px;
+    margin-top: 3px;
+    padding: 5px;
+    background: #333;
+    color: white;
+    border: 1px solid #666;
+}
+
+button {
+    padding: 7px 12px;
+    background: #444;
+    color: white;
+    border: 1px solid #666;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+    background: #555;
+}
+
+button:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.message {
+    padding: 8px 14px;
+    background: #18212a;
+    color: #90caf9;
+}
+
+.message.error {
+    background: #341919;
+    color: #ef9a9a;
+}
+
+main {
+    padding: 12px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.frame-panel {
+    min-width: 0;
+}
+
+.frame-panel h3 {
+    margin: 0 0 7px;
+    color: #ccc;
+    font-size: 14px;
+}
+
+.preview-panel {
+    grid-column: 1 / -1;
+    max-width: calc(50% - 6px);
+    width: 100%;
+    justify-self: center;
+}
+
+.image-stage {
+    position: relative;
+    height: 36vh;
+    min-height: 240px;
+    overflow: hidden;
+    background: #050505;
+    border: 1px solid #444;
+    cursor: crosshair;
+}
+
+.image-stage img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: none;
+}
+
+.image-stage img.loaded {
+    display: block;
+}
+
+.empty-label {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #777;
+    pointer-events: none;
+}
+
+.image-stage img.loaded ~ .empty-label {
+    display: none;
+}
+
+.marker {
+    display: none;
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    margin: -10px 0 0 -10px;
+    border: 2px solid #ffeb3b;
+    border-radius: 50%;
+    box-shadow: 0 0 2px black;
+    pointer-events: none;
+}
+
+footer {
+    justify-content: space-between;
+}
+
+.actions {
+    display: flex;
+    gap: 8px;
+}
+
+@media (max-width: 850px) {
+    header {
+        flex-wrap: wrap;
+    }
+
+    main {
+        grid-template-columns: 1fr;
+    }
+
+    .preview-panel {
+        grid-column: auto;
+        max-width: none;
+    }
+}

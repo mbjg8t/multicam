@@ -12,6 +12,18 @@
 - Camera profile save and load.
 - Raspberry Pi CSI provisioning inspection and guarded configuration proposals.
 
+### Guided camera alignment
+
+- Added a compact main-window camera strip with stream and alignment status.
+- Added explicit reference-camera and transformed-target selection.
+- Added frozen snapshots of all running cameras with timestamp-skew reporting.
+- Added one-point translation alignment across different frame resolutions.
+- Added a separate alignment window with exact click mapping, markers, a 50%
+  overlay preview, draft acceptance/rejection, and undo.
+- Kept camera registration separate from ordinary display-layer transforms.
+- Added mode-mismatch protection and generic 3x3 registration matrices for
+  future similarity, affine, and homography alignment.
+
 ### Repository foundation cleanup
 
 - Removed committed development snapshots; Git history remains authoritative.
@@ -27,6 +39,6 @@
 
 - Runtime hot-plug reconciliation.
 - Selectable DSP pipelines with raw-data preservation.
-- Alignment and calibration tools.
+- Automatic alignment refinement, rotation/scale, and calibration profiles.
 - MTF service and MTF Workbench integration.
 - Measurement sessions, synchronized capture, recording, and reports.

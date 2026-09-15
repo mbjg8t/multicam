@@ -12,6 +12,8 @@ Implemented:
 - generic camera discovery and persistent identities
 - central concurrent acquisition through `CameraManager` and `FrameBroker`
 - generic 0..N camera layers and live compositing
+- live camera-status strip with selectable alignment reference and target
+- frozen-frame, guided one-point translation alignment with preview and undo
 - capability-driven camera settings and saved camera profiles
 - Raspberry Pi CSI provisioning inspection
 - Flask web interface
@@ -20,7 +22,7 @@ Planned but not yet integrated:
 
 - FLIR Boson backend
 - runtime hot-plug reconciliation
-- alignment and calibration tools
+- automatic alignment refinement, rotation/scale, and calibration profiles
 - selectable DSP pipelines
 - MTF Workbench and analysis service
 - measurement sessions, synchronized capture, recording, and reports
@@ -58,6 +60,14 @@ multicam
 ```
 
 Open `http://<pi-address>:5000` from another computer on the same network.
+
+The main page shows every discovered camera and whether it is streaming with
+frames. Choose **Align to** (the fixed reference) and **Transform** (the camera
+that will move), then open **Alignment**. Freeze the running cameras, click the
+same physical feature first in the reference and then in the target, inspect
+the 50% overlay, and accept or reject the draft. See
+[`help/alignment.md`](help/alignment.md) for the complete workflow and current
+limitations.
 
 The existing launcher remains available:
 

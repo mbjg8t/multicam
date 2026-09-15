@@ -142,12 +142,14 @@ Implemented foundation:
 - camera configuration window
 - camera profiles
 - Raspberry Pi camera provisioning inspection
+- generic registration state using target-to-reference 3x3 matrices
+- frozen-frame guided one-point alignment and reversible draft transforms
 
 Planned:
 
 - FLIR Boson backend
 - runtime hot-plug reconciliation
-- alignment and calibration tools
+- automatic alignment refinement and calibration profiles
 - selectable DSP pipelines
 - MTF service and Workbench integration
 - recording
@@ -169,6 +171,12 @@ flowchart TD
 ```
 
 Shared state and events connect all application services and user interfaces.
+
+Alignment registration is distinct from display-layer positioning. A
+registration matrix maps each target camera's source pixels into the selected
+reference camera's pixel space. The compositor applies the accepted transform
+after normalizing the source image to the reference canvas. Draft transforms
+are shared at runtime for live preview but can be rejected before acceptance.
 
 The current broker retains the latest frame for live viewing. Its public
 boundary will evolve to support bounded preview subscribers and controlled,

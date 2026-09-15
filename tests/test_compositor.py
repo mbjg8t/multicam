@@ -4,6 +4,7 @@ from multicam.core.cameras import Frame
 from multicam.core.imaging import Compositor
 from multicam.core.state import (
     CameraLayer,
+    RegistrationTransform,
     ViewState,
 )
 
@@ -136,3 +137,39 @@ def test_first_layer_opacity_blends_against_black():
 
     assert output is not None
     assert np.all(output == 50)
+
+
+def test_compositor_uses_alignment_reference_canvas_and_translation():
+    frames = {
+        "target": Frame(
+            camera_id="target",
+            image=np.array([[255, 0], [0, 0]], dtype=np.uint8),
+        ),
+        "reference": Frame(
+            camera_id="reference",
+            image=np.zeros((4, 4), dtype=np.uint8),
+        ),
+    }
+    view = ViewState(layers=[
+        CameraLayer(camera_id="target", opacity=1.0, z_order=0),
+    ])
+    registration = RegistrationTransform(
+        matrix=(
+            (2.0, 0.0, 1.0),
+            (0.0, 2.0, 0.0),
+            (0.0, 0.0, 1.0),
+        ),
+        source_size=(2, 2),
+        reference_size=(4, 4),
+    )
+
+    output = Compositor().compose(
+        frames,
+        view,
+        registrations={"target": registration},
+        reference_camera_id="reference",
+    )
+
+    assert output.shape == (4, 4, 3)
+    assert output[0, 1].tolist() == [255, 255, 255]
+    assert output[0, 0].tolist() == [0, 0, 0]

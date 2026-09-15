@@ -11,11 +11,20 @@ from PIL import Image
 
 from multicam.core.cameras import CameraManager, FrameBroker
 from multicam.core.provisioning import CameraProvisioningService
-from multicam.core.services import CameraProfileStore, LiveViewService
-from multicam.core.state import CameraLayer, ViewStateStore
+from multicam.core.services import (
+    AlignmentService,
+    CameraProfileStore,
+    LiveViewService,
+)
+from multicam.core.state import (
+    AlignmentStateStore,
+    CameraLayer,
+    ViewStateStore,
+)
 from multicam.platforms.raspberry_pi import RaspberryPiCameraProvisioner
 
 from .backend_loader import register_available_backends
+from .alignment_routes import create_alignment_blueprint
 
 
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
@@ -30,11 +39,17 @@ backend_load_results = register_available_backends(
 
 broker = FrameBroker()
 state = ViewStateStore()
+alignment_state = AlignmentStateStore()
+alignment_service = AlignmentService(
+    broker=broker,
+    state=alignment_state,
+)
 
 service = LiveViewService(
     manager=manager,
     broker=broker,
     state=state,
+    alignment_state=alignment_state,
 )
 
 pi_config_path = os.environ.get(
@@ -59,6 +74,14 @@ provisioning_service = CameraProvisioningService(
 
 
 profile_store = CameraProfileStore()
+
+app.register_blueprint(create_alignment_blueprint(
+    manager=manager,
+    broker=broker,
+    alignment_state=alignment_state,
+    alignment_service=alignment_service,
+    compositor=service.compositor,
+))
 
 
 def _read_camera_profiles():
@@ -116,6 +139,17 @@ def initialize():
             z_order=0,
         )
     )
+
+    alignment_target = next(
+        (camera for camera in opened if camera.id != visible.id),
+        None,
+    )
+
+    if alignment_target is not None:
+        alignment_state.select(
+            visible.id,
+            alignment_target.id,
+        )
 
     broker.start_all()
 

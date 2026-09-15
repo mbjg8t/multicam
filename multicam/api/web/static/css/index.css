@@ -12,13 +12,121 @@ html, body {
 }
 
 .header {
-    height: 52px;
+    min-height: 52px;
     box-sizing: border-box;
     padding: 8px 12px;
     background: #222;
     display: flex;
     align-items: center;
     gap: 10px;
+}
+
+.quick-alignment {
+    display: flex;
+    gap: 8px;
+    margin-left: auto;
+}
+
+.quick-alignment label {
+    color: #bbb;
+    font-size: 12px;
+}
+
+select {
+    display: block;
+    max-width: 180px;
+    margin-top: 2px;
+    border: 1px solid #666;
+    border-radius: 3px;
+    background: #333;
+    color: white;
+    padding: 3px 6px;
+}
+
+.camera-strip {
+    min-height: 42px;
+    box-sizing: border-box;
+    padding: 6px 10px;
+    background: #191919;
+    border-top: 1px solid #333;
+    border-bottom: 1px solid #333;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    overflow-x: auto;
+}
+
+.camera-chip {
+    white-space: nowrap;
+    border: 1px solid #555;
+    border-radius: 14px;
+    background: #292929;
+    color: #ddd;
+    padding: 5px 9px;
+    cursor: pointer;
+}
+
+.camera-chip.reference {
+    border-color: #42a5f5;
+}
+
+.camera-chip.target {
+    border-color: #ab47bc;
+}
+
+.camera-chip.mode-mismatch {
+    border-color: #ffb74d;
+}
+
+.status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 5px;
+    background: #777;
+}
+
+.status-dot.running {
+    background: #66bb6a;
+}
+
+.status-dot.waiting {
+    background: #fbc02d;
+}
+
+.status-dot.error {
+    background: #ef5350;
+}
+
+.role-badge {
+    margin-left: 5px;
+    color: #90caf9;
+    font-size: 10px;
+    text-transform: uppercase;
+}
+
+.camera-chip.target .role-badge {
+    color: #ce93d8;
+}
+
+.alignment-badge {
+    margin-left: 5px;
+    color: #aaa;
+    font-size: 10px;
+    text-transform: uppercase;
+}
+
+@media (max-width: 850px) {
+    .header {
+        flex-wrap: wrap;
+    }
+
+    .quick-alignment {
+        order: 3;
+        width: 100%;
+        margin-left: 0;
+    }
 }
 
 .title {

@@ -15,13 +15,29 @@
                 Cameras
             </button>
 
-            <button disabled>Alignment</button>
+            <div class="quick-alignment">
+                <label>
+                    Align to
+                    <select id="reference-camera"></select>
+                </label>
+
+                <label>
+                    Transform
+                    <select id="target-camera"></select>
+                </label>
+            </div>
+
+            <button id="open-alignment">Alignment</button>
             <button disabled>MTF</button>
         </div>
+
+        <div id="camera-strip" class="camera-strip"></div>
 
         <div class="viewer">
             <img src="/stream">
         </div>
     </div>
+
+    <script src="{{ url_for('static', filename='js/index.js') }}"></script>
 </body>
 </html>

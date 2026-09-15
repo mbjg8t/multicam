@@ -3,7 +3,11 @@ from __future__ import annotations
 import numpy as np
 
 from multicam.core.cameras import Frame
-from multicam.core.state import CameraLayer, ViewState
+from multicam.core.state import (
+    CameraLayer,
+    RegistrationTransform,
+    ViewState,
+)
 
 
 class Compositor:
@@ -11,6 +15,8 @@ class Compositor:
         self,
         frames: dict[str, Frame],
         view_state: ViewState,
+        registrations: dict[str, RegistrationTransform] | None = None,
+        reference_camera_id: str | None = None,
     ) -> np.ndarray | None:
         layers = sorted(
             view_state.layers,
@@ -20,20 +26,24 @@ class Compositor:
         # The first available layer establishes the output canvas even if
         # that layer is disabled. This keeps the output geometry stable when
         # Layer 1 is temporarily hidden.
-        canvas_frame = next(
-            (
-                frames.get(layer.camera_id)
-                for layer in layers
-                if frames.get(layer.camera_id) is not None
-            ),
-            None,
-        )
+        canvas_frame = frames.get(reference_camera_id or "")
+
+        if canvas_frame is None:
+            canvas_frame = next(
+                (
+                    frames.get(layer.camera_id)
+                    for layer in layers
+                    if frames.get(layer.camera_id) is not None
+                ),
+                None,
+            )
 
         if canvas_frame is None:
             return None
 
-        canvas_image = self._to_display_rgb(canvas_frame.image)
+        canvas_image = self.to_display_rgb(canvas_frame.image)
         output = np.zeros_like(canvas_image)
+        registrations = registrations or {}
 
         for layer in layers:
             if not layer.enabled:
@@ -44,17 +54,18 @@ class Compositor:
             if frame is None:
                 continue
 
-            image = self._to_display_rgb(frame.image)
+            image = self.to_display_rgb(frame.image)
 
             output = self._apply_layer(
                 output,
                 image,
                 layer,
+                registrations.get(layer.camera_id),
             )
 
         return output
 
-    def _to_display_rgb(self, image: np.ndarray) -> np.ndarray:
+    def to_display_rgb(self, image: np.ndarray) -> np.ndarray:
         if image.dtype == np.uint16:
             minimum = int(image.min())
             maximum = int(image.max())
@@ -100,15 +111,34 @@ class Compositor:
         base: np.ndarray,
         image: np.ndarray,
         layer: CameraLayer,
+        registration: RegistrationTransform | None = None,
     ) -> np.ndarray:
+        if registration is not None:
+            source_changed = (
+                registration.source_size is not None
+                and registration.source_size
+                != (image.shape[1], image.shape[0])
+            )
+            reference_changed = (
+                registration.reference_size is not None
+                and registration.reference_size
+                != (base.shape[1], base.shape[0])
+            )
+
+            if source_changed or reference_changed:
+                registration = None
+
         image = self._resize_nearest(
             image,
             base.shape[1],
             base.shape[0],
         )
 
-        x_offset = int(round(layer.transform.x))
-        y_offset = int(round(layer.transform.y))
+        registration_x = registration.x if registration else 0.0
+        registration_y = registration.y if registration else 0.0
+
+        x_offset = int(round(layer.transform.x + registration_x))
+        y_offset = int(round(layer.transform.y + registration_y))
 
         if x_offset != 0 or y_offset != 0:
             image = self._translate(

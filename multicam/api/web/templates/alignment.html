@@ -1,0 +1,68 @@
+<!doctype html>
+<html>
+<head>
+    <title>Multicam Alignment</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/alignment.css') }}">
+</head>
+<body>
+    <header>
+        <h2>Camera Alignment</h2>
+
+        <label>
+            Align to (reference)
+            <select id="reference-camera"></select>
+        </label>
+
+        <label>
+            Transform (target)
+            <select id="target-camera"></select>
+        </label>
+
+        <button id="freeze">Freeze all running cameras</button>
+    </header>
+
+    <div id="message" class="message">
+        Select two streaming cameras, then freeze the frames.
+    </div>
+
+    <main>
+        <section class="frame-panel">
+            <h3>Reference — click the feature to match</h3>
+            <div id="reference-stage" class="image-stage">
+                <img id="reference-image" alt="Frozen reference frame">
+                <span class="marker"></span>
+                <span class="empty-label">Freeze frames to begin</span>
+            </div>
+        </section>
+
+        <section class="frame-panel">
+            <h3>Target — click the same feature</h3>
+            <div id="target-stage" class="image-stage">
+                <img id="target-image" alt="Frozen target frame">
+                <span class="marker"></span>
+                <span class="empty-label">Freeze frames to begin</span>
+            </div>
+        </section>
+
+        <section class="frame-panel preview-panel">
+            <h3>50% overlay preview</h3>
+            <div class="image-stage">
+                <img id="preview-image" alt="Alignment overlay preview">
+                <span class="empty-label">Matching clicks create a preview</span>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <span id="transform-summary">No pending transform</span>
+        <div class="actions">
+            <button id="accept" disabled>Accept</button>
+            <button id="reject" disabled>Reject</button>
+            <button id="undo" disabled>Undo accepted</button>
+            <button id="reset">Reset all alignments</button>
+        </div>
+    </footer>
+
+    <script src="{{ url_for('static', filename='js/alignment.js') }}"></script>
+</body>
+</html>
