@@ -1,0 +1,30 @@
+Multicam uniform camera-layer migration
+
+Changes:
+- Replaces ViewState base_camera_id + overlays with layers[].
+- Renames OverlayLayer to CameraLayer.
+- First Picamera2/visible camera starts as Layer 1.
+- Every layer supports the same Enabled and Opacity controls.
+- Cameras window now renders all camera layers uniformly.
+- Add Camera Layer uses a dropdown of currently unused discovered cameras.
+- All physical cameras remain centrally opened/streaming via CameraManager/FrameBroker.
+- Stream diagnostics are displayed per layer.
+- Compositor processes enabled layers in z-order.
+- First available layer establishes canvas geometry even if disabled, so hiding Layer 1 does not change canvas size while its frames remain available.
+- LiveViewService gathers frames for all configured layers.
+- Real compose hardware tool updated to CameraLayer model.
+- Architecture help updated.
+- Unit tests updated and expanded.
+
+Not implemented in this patch:
+- Layer reordering UI
+- Scale/rotation transform processing
+- Flip controls
+- Camera Settings implementation
+- Alignment window
+- Persistent layer configuration
+
+Validation performed:
+python -m pytest -q tests/test_view_state.py tests/test_compositor.py tests/test_camera_manager.py
+Result: 6 passed
+Python compilation checks passed for changed Python modules.
