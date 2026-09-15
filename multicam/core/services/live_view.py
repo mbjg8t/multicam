@@ -12,11 +12,13 @@ class LiveViewService:
         broker: FrameBroker,
         state: ViewStateStore,
         alignment_state: AlignmentStateStore | None = None,
+        orientation_store=None,
     ):
         self.manager = manager
         self.broker = broker
         self.state = state
         self.alignment_state = alignment_state
+        self.orientation_store = orientation_store
         self.compositor = Compositor()
 
     def get_composite(self):
@@ -60,11 +62,17 @@ class LiveViewService:
             if self.alignment_state is not None
             else None
         )
+        orientations = (
+            self.orientation_store.snapshot()
+            if self.orientation_store is not None
+            else None
+        )
 
         return self.compositor.compose(
             frames,
             view_state,
             registrations=registrations,
+            orientations=orientations,
             reference_camera_id=(
                 alignment.reference_camera_id
                 if alignment is not None

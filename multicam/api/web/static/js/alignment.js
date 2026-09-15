@@ -70,6 +70,18 @@ function updateControls() {
     document.getElementById('reject').disabled = !isPreview;
     document.getElementById('undo').disabled = !target?.can_undo;
 
+    const frozenIds = new Set(
+        alignmentState.frozen_frames.map(frame => frame.camera_id)
+    );
+    const canNudge = (
+        frozenIds.has(alignmentState.reference_camera_id) &&
+        frozenIds.has(alignmentState.target_camera_id)
+    );
+
+    document.querySelectorAll('.nudge').forEach(button => {
+        button.disabled = !canNudge;
+    });
+
     const summary = document.getElementById('transform-summary');
     if (target?.transform) {
         const label = isPreview ? 'Preview' : 'Accepted';
@@ -270,6 +282,26 @@ async function runAction(path, successMessage) {
     }
 }
 
+async function nudgeTarget(xDirection, yDirection) {
+    const step = Number(document.getElementById('nudge-step').value);
+
+    try {
+        alignmentState = await api('/api/alignment/nudge', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                x_delta: xDirection * step,
+                y_delta: yDirection * step
+            })
+        });
+        updateControls();
+        loadImage(previewImage, `/alignment/preview?t=${Date.now()}`);
+        showMessage('Nudge created a draft alignment. Accept or reject it.');
+    } catch (error) {
+        showMessage(error.message, true);
+    }
+}
+
 referenceSelect.addEventListener('change', setSelection);
 targetSelect.addEventListener('change', setSelection);
 
@@ -303,6 +335,15 @@ document.getElementById('reset').addEventListener('click', () => {
     if (window.confirm('Clear every accepted and pending alignment?')) {
         runAction('/api/alignment/reset', 'All runtime alignments cleared.');
     }
+});
+
+document.querySelectorAll('.nudge').forEach(button => {
+    button.addEventListener('click', () => {
+        nudgeTarget(
+            Number(button.dataset.x),
+            Number(button.dataset.y)
+        );
+    });
 });
 
 installPointHandler('reference-stage', referenceImage, true);

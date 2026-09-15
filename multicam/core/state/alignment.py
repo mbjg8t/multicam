@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from threading import RLock
 import time
 
@@ -71,6 +71,57 @@ class RegistrationTransform:
             reference_size=reference_size,
             source_points=(source_point,),
             reference_points=(reference_point,),
+        )
+
+    @classmethod
+    def identity_for_sizes(
+        cls,
+        *,
+        source_size: tuple[int, int],
+        reference_size: tuple[int, int],
+    ) -> RegistrationTransform:
+        source_width, source_height = source_size
+        reference_width, reference_height = reference_size
+
+        if min(
+            source_width,
+            source_height,
+            reference_width,
+            reference_height,
+        ) <= 0:
+            raise ValueError("Frame dimensions must be positive")
+
+        return cls(
+            matrix=(
+                (reference_width / source_width, 0.0, 0.0),
+                (0.0, reference_height / source_height, 0.0),
+                (0.0, 0.0, 1.0),
+            ),
+            source_size=source_size,
+            reference_size=reference_size,
+        )
+
+    def translated(
+        self,
+        x_delta: float,
+        y_delta: float,
+    ) -> RegistrationTransform:
+        return replace(
+            self,
+            matrix=(
+                (
+                    self.matrix[0][0],
+                    self.matrix[0][1],
+                    self.x + x_delta,
+                ),
+                (
+                    self.matrix[1][0],
+                    self.matrix[1][1],
+                    self.y + y_delta,
+                ),
+                self.matrix[2],
+            ),
+            created_at=time.time(),
         )
 
 

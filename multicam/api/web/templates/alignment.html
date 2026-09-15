@@ -55,6 +55,20 @@
 
     <footer>
         <span id="transform-summary">No pending transform</span>
+        <div class="nudge-controls">
+            <label>
+                Nudge step
+                <select id="nudge-step">
+                    <option value="1">1 px</option>
+                    <option value="5" selected>5 px</option>
+                    <option value="20">20 px</option>
+                </select>
+            </label>
+            <button class="nudge" data-x="0" data-y="-1">↑</button>
+            <button class="nudge" data-x="-1" data-y="0">←</button>
+            <button class="nudge" data-x="1" data-y="0">→</button>
+            <button class="nudge" data-x="0" data-y="1">↓</button>
+        </div>
         <div class="actions">
             <button id="accept" disabled>Accept</button>
             <button id="reject" disabled>Reject</button>

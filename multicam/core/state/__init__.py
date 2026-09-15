@@ -9,6 +9,7 @@ from .alignment import (
     AlignmentStateStore,
     RegistrationTransform,
 )
+from .orientation import CameraOrientation
 
 __all__ = [
     "CameraLayer",
@@ -18,4 +19,5 @@ __all__ = [
     "AlignmentState",
     "AlignmentStateStore",
     "RegistrationTransform",
+    "CameraOrientation",
 ]

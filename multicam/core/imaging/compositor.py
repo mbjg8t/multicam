@@ -5,6 +5,7 @@ import numpy as np
 from multicam.core.cameras import Frame
 from multicam.core.state import (
     CameraLayer,
+    CameraOrientation,
     RegistrationTransform,
     ViewState,
 )
@@ -16,6 +17,7 @@ class Compositor:
         frames: dict[str, Frame],
         view_state: ViewState,
         registrations: dict[str, RegistrationTransform] | None = None,
+        orientations: dict[str, CameraOrientation] | None = None,
         reference_camera_id: str | None = None,
     ) -> np.ndarray | None:
         layers = sorted(
@@ -41,7 +43,11 @@ class Compositor:
         if canvas_frame is None:
             return None
 
-        canvas_image = self.to_display_rgb(canvas_frame.image)
+        orientations = orientations or {}
+        canvas_image = self.orient_display_image(
+            canvas_frame.image,
+            orientations.get(canvas_frame.camera_id),
+        )
         output = np.zeros_like(canvas_image)
         registrations = registrations or {}
 
@@ -54,7 +60,10 @@ class Compositor:
             if frame is None:
                 continue
 
-            image = self.to_display_rgb(frame.image)
+            image = self.orient_display_image(
+                frame.image,
+                orientations.get(layer.camera_id),
+            )
 
             output = self._apply_layer(
                 output,
@@ -105,6 +114,31 @@ class Compositor:
         raise ValueError(
             f"Unsupported image shape: {image.shape}"
         )
+
+    def orient_display_image(
+        self,
+        image: np.ndarray,
+        orientation: CameraOrientation | None,
+    ) -> np.ndarray:
+        output = self.to_display_rgb(image)
+
+        if orientation is None:
+            return output
+
+        if orientation.rotation_deg == 90:
+            output = np.rot90(output, k=3)
+        elif orientation.rotation_deg == 180:
+            output = np.rot90(output, k=2)
+        elif orientation.rotation_deg == 270:
+            output = np.rot90(output, k=1)
+
+        if orientation.flip_horizontal:
+            output = np.fliplr(output)
+
+        if orientation.flip_vertical:
+            output = np.flipud(output)
+
+        return output
 
     def _apply_layer(
         self,

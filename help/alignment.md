@@ -12,6 +12,11 @@ reference camera. Camera names and spectral roles are not hard-coded.
 Registration is independent of ordinary layer position, opacity, and display
 layout.
 
+Set physical mounting orientation under **Cameras → Settings → Display
+Orientation** before starting alignment. Rotation and flip are saved per camera
+and are applied before registration. Changing them clears current runtime
+alignment, deliberately, because the old pixel coordinates are no longer valid.
+
 ## Guided one-point workflow
 
 1. Confirm that both cameras have green status dots on the main page.
@@ -23,8 +28,10 @@ layout.
 6. Click a distinct physical feature in the frozen reference image.
 7. Click the same feature in the frozen target image.
 8. Inspect the 50% overlay preview and the X/Y movement.
-9. Choose **Accept**, **Reject**, or **Undo accepted**.
-10. Select the next target and repeat. The reference remains fixed.
+9. Use the arrow buttons to nudge the target by 1, 5, or 20 reference-canvas
+   pixels when needed. Nudges create a draft, just like matching points.
+10. Choose **Accept**, **Reject**, or **Undo accepted**.
+11. Select the next target and repeat. The reference remains fixed.
 
 One matching point calculates translation. The target is first normalized to
 the reference frame size, so cameras with different resolutions are supported.

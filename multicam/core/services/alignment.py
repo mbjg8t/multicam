@@ -27,9 +27,11 @@ class AlignmentService:
         self,
         broker: FrameBroker,
         state: AlignmentStateStore,
+        orientation_store=None,
     ):
         self.broker = broker
         self.state = state
+        self.orientation_store = orientation_store
         self._frozen_frames: dict[str, Frame] = {}
         self._lock = RLock()
 
@@ -63,6 +65,10 @@ class AlignmentService:
                 for frame in self._frozen_frames.values()
             ]
 
+    def clear_frozen(self) -> None:
+        with self._lock:
+            self._frozen_frames = {}
+
     def set_point_pair(
         self,
         *,
@@ -83,8 +89,8 @@ class AlignmentService:
         if reference is None or target is None:
             raise ValueError("Freeze reference and target frames first")
 
-        reference_size = self._frame_size(reference)
-        target_size = self._frame_size(target)
+        reference_size = self._frame_size(reference, reference_id)
+        target_size = self._frame_size(target, target_id)
 
         self._validate_point(reference_point, reference_size, "reference")
         self._validate_point(target_point, target_size, "target")
@@ -95,6 +101,38 @@ class AlignmentService:
             source_size=target_size,
             reference_size=reference_size,
         )
+        self.state.set_draft(target_id, transform)
+        return transform
+
+    def nudge(
+        self,
+        *,
+        x_delta: float,
+        y_delta: float,
+    ) -> RegistrationTransform:
+        current = self.state.get()
+        reference_id = current.reference_camera_id
+        target_id = current.target_camera_id
+
+        if reference_id is None or target_id is None:
+            raise ValueError("Select reference and target cameras first")
+
+        with self._lock:
+            reference = self._frozen_frames.get(reference_id)
+            target = self._frozen_frames.get(target_id)
+
+        if reference is None or target is None:
+            raise ValueError("Freeze reference and target frames first")
+
+        transform = (
+            current.drafts.get(target_id)
+            or current.transforms.get(target_id)
+            or RegistrationTransform.identity_for_sizes(
+                source_size=self._frame_size(target, target_id),
+                reference_size=self._frame_size(reference, reference_id),
+            )
+        )
+        transform = transform.translated(x_delta, y_delta)
         self.state.set_draft(target_id, transform)
         return transform
 
@@ -129,14 +167,23 @@ class AlignmentService:
             metadata=copy.deepcopy(frame.metadata),
         )
 
-    @staticmethod
-    def _frame_size(frame: Frame) -> tuple[int, int]:
+    def _frame_size(
+        self,
+        frame: Frame,
+        camera_id: str,
+    ) -> tuple[int, int]:
         height, width = frame.image.shape[:2]
+
+        if self.orientation_store is not None:
+            orientation = self.orientation_store.get(camera_id)
+
+            if orientation.rotation_deg in (90, 270):
+                width, height = height, width
+
         return int(width), int(height)
 
-    @classmethod
-    def _frame_info(cls, frame: Frame) -> FrozenFrameInfo:
-        width, height = cls._frame_size(frame)
+    def _frame_info(self, frame: Frame) -> FrozenFrameInfo:
+        width, height = self._frame_size(frame, frame.camera_id)
         return FrozenFrameInfo(
             camera_id=frame.camera_id,
             timestamp_ns=frame.timestamp_ns,

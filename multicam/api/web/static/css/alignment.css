@@ -142,6 +142,28 @@ footer {
     gap: 8px;
 }
 
+.nudge-controls {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.nudge-controls label {
+    color: #bbb;
+    font-size: 12px;
+}
+
+.nudge-controls select {
+    min-width: 64px;
+}
+
+.nudge {
+    min-width: 34px;
+    padding: 6px 10px;
+    font-size: 17px;
+    line-height: 18px;
+}
+
 @media (max-width: 850px) {
     header {
         flex-wrap: wrap;
@@ -154,5 +176,9 @@ footer {
     .preview-panel {
         grid-column: auto;
         max-width: none;
+    }
+
+    footer {
+        flex-wrap: wrap;
     }
 }

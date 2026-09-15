@@ -15,8 +15,18 @@ def create_alignment_blueprint(
     alignment_state,
     alignment_service,
     compositor,
+    orientation_store,
 ):
     blueprint = Blueprint("alignment", __name__)
+
+    def oriented_size(frame, camera_id):
+        height, width = frame.image.shape[:2]
+        orientation = orientation_store.get(camera_id)
+
+        if orientation.rotation_deg in (90, 270):
+            width, height = height, width
+
+        return int(width), int(height)
 
     def serialize_transform(transform):
         if transform is None:
@@ -50,9 +60,9 @@ def create_alignment_blueprint(
         reference_size = None
 
         if reference_frame is not None:
-            reference_size = (
-                int(reference_frame.image.shape[1]),
-                int(reference_frame.image.shape[0]),
+            reference_size = oriented_size(
+                reference_frame,
+                current.reference_camera_id,
             )
 
         for camera in manager.list_cameras():
@@ -67,10 +77,7 @@ def create_alignment_blueprint(
                 status = "preview"
             elif accepted is not None:
                 frame_size = (
-                    (
-                        int(frame.image.shape[1]),
-                        int(frame.image.shape[0]),
-                    )
+                    oriented_size(frame, camera.id)
                     if frame is not None
                     else None
                 )
@@ -217,6 +224,20 @@ def create_alignment_blueprint(
 
         return jsonify(serialize_alignment())
 
+    @blueprint.route("/api/alignment/nudge", methods=["POST"])
+    def alignment_nudge_api():
+        data = request.get_json(silent=True) or {}
+
+        try:
+            alignment_service.nudge(
+                x_delta=float(data["x_delta"]),
+                y_delta=float(data["y_delta"]),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        return jsonify(serialize_alignment())
+
     def alignment_action(action):
         camera_id = alignment_state.get().target_camera_id
 
@@ -260,7 +281,10 @@ def create_alignment_blueprint(
             return jsonify({"error": "No frozen frame for camera"}), 404
 
         try:
-            image = compositor.to_display_rgb(frame.image)
+            image = compositor.orient_display_image(
+                frame.image,
+                orientation_store.get(camera_id),
+            )
         except (TypeError, ValueError) as exc:
             return jsonify({"error": str(exc)}), 400
 
@@ -289,6 +313,7 @@ def create_alignment_blueprint(
             {reference_id: reference, target_id: target},
             preview_state,
             registrations=alignment_state.effective_transforms(),
+            orientations=orientation_store.snapshot(),
             reference_camera_id=reference_id,
         )
 
