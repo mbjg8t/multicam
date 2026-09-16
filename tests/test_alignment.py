@@ -248,6 +248,36 @@ def test_auto_model_selects_affine_for_directional_stretch():
     assert transform.inlier_mask == (True,) * len(source_points)
 
 
+def test_similarity_model_recommends_affine_for_valid_stretched_pairs():
+    service, _ = alignment_service_with_large_frames()
+    source_points = [
+        (100.0, 100.0),
+        (700.0, 100.0),
+        (700.0, 700.0),
+        (100.0, 700.0),
+    ]
+    matrix = np.asarray((
+        (1.25, 0.18, 20.0),
+        (-0.08, 0.72, 35.0),
+        (0.0, 0.0, 1.0),
+    ))
+    reference_points = []
+
+    for point in source_points:
+        mapped = matrix @ np.asarray((*point, 1.0))
+        reference_points.append(tuple(mapped[:2]))
+
+    with pytest.raises(
+        ValueError,
+        match=r"Rotate \+ scale cannot explain.*Stretch \+ skew fits 4 of 4",
+    ):
+        service.set_point_pairs(
+            reference_points=reference_points,
+            target_points=source_points,
+            requested_model="similarity",
+        )
+
+
 def test_robust_homography_rejects_bad_point_pair():
     service, _ = alignment_service_with_large_frames()
     expected = np.asarray((

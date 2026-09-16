@@ -75,10 +75,19 @@ function selectedCamera() {
 
 function syncPairMetrics() {
     const transform = selectedCamera()?.transform;
+    const metricsAreCurrent = (
+        fitIsCurrent &&
+        transform?.residuals_px?.length === pointPairs.length &&
+        transform?.inlier_mask?.length === pointPairs.length
+    );
 
     pointPairs.forEach((pair, index) => {
-        pair.residual = transform?.residuals_px?.[index] ?? null;
-        pair.inlier = transform?.inlier_mask?.[index] ?? true;
+        pair.residual = metricsAreCurrent
+            ? transform.residuals_px[index]
+            : null;
+        pair.inlier = metricsAreCurrent
+            ? transform.inlier_mask[index]
+            : true;
     });
 }
 
@@ -92,7 +101,11 @@ function renderPairList() {
 
     if (pointPairs.length === 0) return;
 
-    if (transform?.rms_error_px !== null && transform?.rms_error_px !== undefined) {
+    if (
+        fitIsCurrent &&
+        transform?.rms_error_px !== null &&
+        transform?.rms_error_px !== undefined
+    ) {
         const accepted = transform.inlier_mask.filter(Boolean).length;
         const rejected = transform.inlier_mask.length - accepted;
         quality.textContent = (
@@ -189,7 +202,10 @@ function updateControls() {
     document.querySelectorAll('.nudge').forEach(button => {
         button.disabled = !canAdjust;
     });
-    document.getElementById('auto-match').disabled = !canAdjust;
+    const autoMatch = document.getElementById('auto-match');
+    autoMatch.disabled = !canAdjust || pointPairs.length < 2;
+
+    if (autoMatch.disabled) autoMatch.checked = false;
 
     const summary = document.getElementById('transform-summary');
     if (target?.transform) {
@@ -573,9 +589,13 @@ async function submitPointPairs(autoMatch = null) {
             : '';
 
         if (count < spec.minimum) {
+            const anchorGuidance = count === 2
+                ? ' Two manual anchors established; Auto-find is now available.'
+                : '';
             showMessage(
                 `Point pair ${count} recorded.${confidence} ` +
-                `Choose at least ${spec.minimum - count} more, well separated.`
+                `Choose at least ${spec.minimum - count} more, well separated.` +
+                anchorGuidance
             );
         } else {
             const fittedModel = selectedCamera()?.transform?.model || modelName(count);

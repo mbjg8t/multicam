@@ -193,12 +193,22 @@ class AlignmentService:
                 threshold,
             )
         else:
-            fit = self._robust_fit(
-                progressive_model,
-                target_points,
-                reference_points,
-                threshold,
-            )
+            try:
+                fit = self._robust_fit(
+                    progressive_model,
+                    target_points,
+                    reference_points,
+                    threshold,
+                )
+            except ValueError as error:
+                self._raise_model_mismatch_if_detected(
+                    requested_model=requested_model,
+                    progressive_model=progressive_model,
+                    source_points=target_points,
+                    reference_points=reference_points,
+                    threshold=threshold,
+                )
+                raise error
 
         matrix, model, residuals, inliers = fit
         inlier_residuals = [
@@ -804,6 +814,63 @@ class AlignmentService:
                 -cls._inlier_rms(item[2], item[3]),
             ),
         )
+
+    @classmethod
+    def _raise_model_mismatch_if_detected(
+        cls,
+        *,
+        requested_model: str,
+        progressive_model: str,
+        source_points: list[tuple[float, float]],
+        reference_points: list[tuple[float, float]],
+        threshold: float,
+    ) -> None:
+        """Distinguish an underpowered model from incorrectly paired points."""
+        if requested_model != progressive_model:
+            return
+
+        alternatives = {
+            "similarity": ("affine", "homography"),
+            "affine": ("homography",),
+        }.get(requested_model, ())
+        labels = {
+            "similarity": "Rotate + scale",
+            "affine": "Stretch + skew",
+            "homography": "Perspective / homography",
+        }
+
+        for alternative in alternatives:
+            # Four arbitrary pairs always define an exact homography. Require
+            # redundancy before claiming that perspective is the better model.
+            if alternative == "homography" and len(source_points) < 6:
+                continue
+
+            try:
+                fit = cls._robust_fit(
+                    alternative,
+                    source_points,
+                    reference_points,
+                    threshold,
+                )
+            except ValueError:
+                continue
+
+            inlier_count = sum(fit[3])
+            raise ValueError(
+                f"{labels[requested_model]} cannot explain these pairs; "
+                f"{labels[alternative]} fits {inlier_count} of "
+                f"{len(source_points)}. Switch Alignment model to "
+                f"{labels[alternative]} or Precision auto."
+            )
+
+        if alternatives:
+            raise ValueError(
+                f"{labels[requested_model]} cannot explain the current "
+                "pairs. Switch to Precision auto and collect at least 6 "
+                "well-spaced pairs, or choose a more flexible Alignment "
+                "model. If that also fails, correct or remove mismatched "
+                "points."
+            )
 
     @classmethod
     def _robust_fit(

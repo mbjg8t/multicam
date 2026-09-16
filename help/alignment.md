@@ -50,10 +50,11 @@ four corners of the useful subject plane; do not place them on one line.
    all running cameras**.
 4. Review the displayed timestamp skew. Keep the scene still when cameras are
    not hardware-synchronized.
-5. Leave **Auto-find target** enabled and click the first distinctive physical
-   feature in the frozen reference image.
-6. Verify that numbered marker 1 identifies the same physical feature in the
-   target. If it is wrong, click the correct target location manually.
+5. Manually select the same distinctive physical feature in both frozen images,
+   then repeat with a second widely separated feature. Two manual anchors keep
+   repeated chart patterns from establishing the wrong initial pose.
+6. After two anchors, optionally enable **Auto-find after 2 anchors**. Verify
+   every suggested numbered marker; correct or remove any wrong target.
 7. Collect at least six widely separated pairs in Precision auto. Four is the
    mathematical minimum for homography but cannot expose a wrong pair; six to
    twelve pairs permit meaningful rejection.
@@ -70,16 +71,23 @@ four corners of the useful subject plane; do not place them on one line.
 12. Choose **Accept**, **Reject**, or **Undo accepted**.
 13. Select another target and repeat. The reference remains fixed.
 
-The automatic matcher downsamples the display frames, converts them to gradient
-structure, and initially searches the target using normalized correlation.
+The automatic matcher becomes available after two manual anchors. It downsamples
+the display frames, converts them to gradient structure, and searches the target
+near the position predicted by the current transform using normalized
+correlation.
 This is more useful across visible, NIR, SWIR, and thermal imagery than matching
 raw brightness. Ambiguous automatic matches are not added; click
 the corresponding target location manually. After a valid initial fit, the
 search uses both a restricted region and a spatial preference for the strong
-match nearest the position predicted by the current transform. A low-uniqueness
+match nearest the predicted position. A low-uniqueness
 but structurally adequate match in that guided region is labeled **guided**.
 The operator must still inspect and accept the draft. Disable **Auto-find
-target** for fully manual point pairing.
+after 2 anchors** for fully manual point pairing.
+
+If manually selected pairs are consistent under a more flexible transform than
+the selected model, the page reports a model mismatch rather than labeling the
+points as bad. For example, correct points from a keystoned chart may require
+**Perspective / homography** even though **Rotate + scale** cannot fit them.
 
 ## Status meanings
 

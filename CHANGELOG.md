@@ -48,6 +48,9 @@
 - Added smooth cursor-centered mouse-wheel zoom up to 12×.
 - Added a spatial prior for repeated-pattern matching so later matches favor
   strong structure nearest the location predicted by the current transform.
+- Require two manual anchor pairs before automatic matching is available.
+- Report underpowered transform models separately from incorrect point pairs,
+  and suppress stale residuals after a failed fit.
 
 ### Camera orientation and manual alignment
 

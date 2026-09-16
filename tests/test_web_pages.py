@@ -39,6 +39,8 @@ def test_alignment_page_renders_from_template():
     assert b"Precision auto" in response.data
     assert b'id="selection-zoom"' in response.data
     assert b'id="reset-zoom"' in response.data
+    assert b'Auto-find after 2 anchors' in response.data
+    assert b'id="auto-match" type="checkbox" disabled' in response.data
 
 
 def test_focus_page_renders_from_template():
