@@ -41,7 +41,7 @@ function modelSpec() {
         translation: {minimum: 1, maximum: 1, label: 'Shift'},
         similarity: {minimum: 2, maximum: 12, label: 'Rotation + scale'},
         affine: {minimum: 3, maximum: 12, label: 'Stretch + skew'},
-        homography: {minimum: 6, maximum: 12, label: 'Perspective / homography'}
+        homography: {minimum: 4, maximum: 12, label: 'Perspective / homography'}
     }[modelSelect.value];
 }
 
@@ -182,12 +182,27 @@ function updateControls() {
         pointPairs.length >= modelSpec().minimum &&
         pointPairs.length <= modelSpec().maximum
     );
-    document.getElementById('accept').disabled = (
+    const accept = document.getElementById('accept');
+    accept.disabled = (
         !isPreview || !pointCountSupported || !fitIsCurrent ||
         pendingReferencePoint !== null
     );
+    accept.title = accept.disabled
+        ? !fitIsCurrent
+            ? 'The selected model does not have a valid current fit.'
+            : pendingReferencePoint !== null
+                ? 'Finish or remove the pending point first.'
+                : !pointCountSupported
+                    ? `This model requires ${modelSpec().minimum}–` +
+                        `${modelSpec().maximum} point pairs.`
+                    : 'Create a preview alignment first.'
+        : 'Accept this preview alignment.';
     document.getElementById('reject').disabled = !isPreview;
-    document.getElementById('undo').disabled = !target?.can_undo;
+    const undo = document.getElementById('undo');
+    undo.disabled = !target?.can_undo;
+    undo.title = undo.disabled
+        ? 'Undo becomes available after an alignment is accepted.'
+        : 'Restore the alignment that existed before the last acceptance.';
     document.getElementById('clear-points').disabled = (
         pointPairs.length === 0 && !pendingReferencePoint
     );
@@ -608,11 +623,14 @@ async function submitPointPairs(autoMatch = null) {
         }
     } catch (error) {
         fitIsCurrent = false;
-        previewImage.removeAttribute('src');
-        previewImage.classList.remove('loaded');
         updateControls();
         renderMarkers();
-        showMessage(error.message, true);
+        loadImage(previewImage, `/alignment/preview?t=${Date.now()}`);
+        showMessage(
+            `${error.message} The last valid preview remains displayed but ` +
+            'cannot be accepted for the selected model.',
+            true
+        );
     }
 }
 
@@ -632,14 +650,13 @@ async function refitSelectedModel() {
 
     if (count > spec.maximum) {
         fitIsCurrent = false;
-        previewImage.removeAttribute('src');
-        previewImage.classList.remove('loaded');
         updateControls();
         renderMarkers();
+        loadImage(previewImage, `/alignment/preview?t=${Date.now()}`);
         showMessage(
             `${spec.label} supports at most ${spec.maximum} point pair(s); ` +
             `all ${count} points were retained. Remove extra points or ` +
-            'select another model.',
+            'select another model. The last valid preview remains displayed.',
             true
         );
         return;

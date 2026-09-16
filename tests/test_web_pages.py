@@ -41,6 +41,7 @@ def test_alignment_page_renders_from_template():
     assert b'id="reset-zoom"' in response.data
     assert b'Auto-find after 2 anchors' in response.data
     assert b'id="auto-match" type="checkbox" disabled' in response.data
+    assert '4–12 pairs (6 recommended)'.encode() in response.data
 
 
 def test_focus_page_renders_from_template():
@@ -107,3 +108,5 @@ def test_alignment_script_includes_auto_match_workflow():
     assert b"modelSelect.addEventListener('change', refitSelectedModel)" in response.data
     assert b"modelSelect.addEventListener('change', clearMatchPoints)" not in response.data
     assert b"model outlier" in response.data
+    assert b"last valid preview remains displayed" in response.data
+    assert b"Undo becomes available after an alignment is accepted" in response.data

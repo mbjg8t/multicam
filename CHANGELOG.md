@@ -53,6 +53,8 @@
   and suppress stale residuals after a failed fit.
 - Preserve point pairs, corrections, and zoom while switching alignment models;
   refit the same points immediately and label fit exclusions as model outliers.
+- Keep the last valid overlay visible when another model cannot fit, allow an
+  explicit four-point homography, and explain disabled Accept/Undo controls.
 
 ### Camera orientation and manual alignment
 

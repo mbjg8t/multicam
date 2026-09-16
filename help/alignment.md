@@ -32,10 +32,10 @@ Manual model choices remain available:
   scale.
 - **Stretch + skew — 3–12 pairs:** adds independent directional stretch and
   shear without perspective.
-- **Perspective / homography — 6–12 pairs:** these are the same 3x3 projective
-  transform. It also corrects planar keystone differences. A provisional
-  homography preview begins at the mathematical minimum of four pairs, but
-  acceptance requires six so incorrect correspondences can be detected.
+- **Perspective / homography — 4–12 pairs:** these are the same 3x3 projective
+  transform. It also corrects planar keystone differences. Four pairs permit
+  preview and acceptance; six or more are strongly recommended so incorrect
+  correspondences can be detected.
 
 Use well-defined features that are visible in both spectral bands. Spread the
 points widely across the common field of view. For Perspective, put them near
@@ -92,6 +92,10 @@ Changing the Alignment model preserves all completed points, their order, and
 manual corrections, then immediately refits them with the new model. A **model
 outlier** means the selected transform cannot explain that pair within the
 residual tolerance; it does not mean the manual click became ambiguous.
+If a newly selected model cannot fit the points, the last valid overlay remains
+visible for comparison, but **Accept** stays disabled until the selected model
+has a valid fit. **Undo accepted** becomes available only after Accept stores an
+alignment.
 
 ## Status meanings
 
