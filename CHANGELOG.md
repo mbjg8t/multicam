@@ -23,6 +23,13 @@
   the main live compositor can consume a processed display variant.
 - Preserve source timestamps/frame numbers and attach pipeline provenance to
   processed frames.
+- Added Off and multiple algorithms for levels, gamma, denoise, sharpen, and
+  Sobel/Laplacian edge/line stages.
+- Made slider updates continuously throttled rather than release/debounce only.
+- Render DSP comparisons through the same orientation, alignment, layer, and
+  compositing path as the main live screen.
+- Replaced full-frame float levels/gamma work with integer lookup tables and
+  sampled statistics for substantially lower preview latency.
 
 ### Guided camera alignment
 

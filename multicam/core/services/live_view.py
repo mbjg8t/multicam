@@ -23,8 +23,9 @@ class LiveViewService:
         self.dsp_service = dsp_service
         self.compositor = Compositor()
 
-    def get_composite(self):
+    def get_composite(self, frame_overrides=None):
         view_state = self.state.get()
+        frame_overrides = frame_overrides or {}
 
         if not view_state.layers:
             return None
@@ -40,11 +41,14 @@ class LiveViewService:
         # may use the first available layer to preserve output canvas geometry
         # while that layer is hidden.
         for layer in view_state.layers:
-            frame = (
-                self.dsp_service.get_frame(layer.camera_id)
-                if self.dsp_service is not None
-                else self.broker.get_latest(layer.camera_id)
-            )
+            frame = frame_overrides.get(layer.camera_id)
+
+            if frame is None:
+                frame = (
+                    self.dsp_service.get_frame(layer.camera_id)
+                    if self.dsp_service is not None
+                    else self.broker.get_latest(layer.camera_id)
+                )
 
             if frame is not None:
                 frames[layer.camera_id] = frame
@@ -54,9 +58,9 @@ class LiveViewService:
             and alignment.reference_camera_id
             and alignment.reference_camera_id not in frames
         ):
-            reference_frame = self.broker.get_latest(
+            reference_frame = frame_overrides.get(
                 alignment.reference_camera_id
-            )
+            ) or self.broker.get_latest(alignment.reference_camera_id)
 
             if reference_frame is not None:
                 frames[alignment.reference_camera_id] = reference_frame
@@ -83,3 +87,21 @@ class LiveViewService:
                 else None
             ),
         )
+
+    def get_camera_display(self, camera_id, frame):
+        """Render a camera with the same geometry used by the main view."""
+        view_state = self.state.get()
+        layer = next(
+            (item for item in view_state.layers if item.camera_id == camera_id),
+            None,
+        )
+
+        if layer is not None and layer.enabled:
+            return self.get_composite(frame_overrides={camera_id: frame})
+
+        orientation = (
+            self.orientation_store.get(camera_id)
+            if self.orientation_store is not None
+            else None
+        )
+        return self.compositor.orient_display_image(frame.image, orientation)

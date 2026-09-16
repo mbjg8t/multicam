@@ -67,6 +67,13 @@ def test_dsp_page_renders_from_template():
     assert b'id="processed-preview"' in response.data
     assert b'id="black-percentile"' in response.data
     assert b'id="max-fps"' in response.data
+    assert b'id="levels-mode"' in response.data
+    assert b'id="denoise-mode"' in response.data
+    assert b'id="sharpen-mode"' in response.data
+    assert b'id="edge-mode"' in response.data
+    assert b"Sobel edges" in response.data
+    assert b"Laplacian edges" in response.data
+    assert b"Live view" in response.data
 
 
 def test_alignment_status_api_is_available_without_cameras():

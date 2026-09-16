@@ -7,7 +7,14 @@ from flask import Blueprint, Response, jsonify, render_template, request
 from PIL import Image
 
 
-def create_dsp_blueprint(*, manager, broker, dsp_service, dsp_store, compositor):
+def create_dsp_blueprint(
+    *,
+    manager,
+    broker,
+    dsp_service,
+    dsp_store,
+    live_view_service,
+):
     blueprint = Blueprint("dsp", __name__)
 
     def serialize_camera(camera):
@@ -46,7 +53,7 @@ def create_dsp_blueprint(*, manager, broker, dsp_service, dsp_store, compositor)
                 "gamma",
                 "denoise",
                 "sharpen",
-                "grayscale",
+                "edges",
                 "invert",
                 "palette",
             ],
@@ -64,12 +71,17 @@ def create_dsp_blueprint(*, manager, broker, dsp_service, dsp_store, compositor)
         data = request.get_json(silent=True) or {}
         converters = {
             "enabled": bool,
+            "levels_mode": str,
             "black_percentile": float,
             "white_percentile": float,
+            "gamma_mode": str,
             "gamma": float,
+            "denoise_mode": str,
             "denoise_radius": int,
+            "sharpen_mode": str,
             "sharpen": float,
-            "grayscale": bool,
+            "edge_mode": str,
+            "edge_strength": float,
             "invert": bool,
             "palette": str,
             "max_fps": float,
@@ -106,7 +118,7 @@ def create_dsp_blueprint(*, manager, broker, dsp_service, dsp_store, compositor)
                     time.sleep(0.08)
                     continue
 
-                image = compositor.to_display_rgb(frame.image)
+                image = live_view_service.get_camera_display(camera_id, frame)
                 buffer = io.BytesIO()
                 Image.fromarray(image).save(buffer, format="JPEG", quality=88)
                 yield (

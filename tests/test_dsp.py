@@ -64,7 +64,9 @@ def test_dsp_pipeline_preserves_source_and_outputs_rgb8():
     output = DspPipeline.process(
         source,
         DspConfig(
+            gamma_mode="gamma",
             gamma=1.2,
+            sharpen_mode="unsharp",
             sharpen=1.0,
             palette="iron",
             invert=True,
@@ -75,6 +77,31 @@ def test_dsp_pipeline_preserves_source_and_outputs_rgb8():
     assert output.dtype == np.uint8
     assert np.array_equal(source, original)
     assert np.ptp(output) > 0
+
+
+def test_dsp_off_modes_preserve_uint8_pixels():
+    source = np.asarray((
+        ((10, 20, 30), (40, 50, 60)),
+        ((70, 80, 90), (100, 110, 120)),
+    ), dtype=np.uint8)
+
+    output = DspPipeline.process(source, DspConfig())
+
+    assert np.array_equal(output, source)
+
+
+@pytest.mark.parametrize("edge_mode", ("sobel", "laplacian"))
+def test_dsp_edge_algorithms_detect_a_line(edge_mode):
+    source = np.zeros((16, 16), dtype=np.uint8)
+    source[:, 8:] = 255
+
+    output = DspPipeline.process(
+        source,
+        DspConfig(edge_mode=edge_mode, edge_strength=1.0),
+    )
+
+    assert output[:, 7:9].max() == 255
+    assert np.all(output[:, 0] == 0)
 
 
 def test_dsp_service_publishes_variant_without_replacing_broker_frame():
@@ -145,3 +172,8 @@ def test_live_view_selects_dsp_variant_for_layer_compositing():
 
     assert dsp.requests == ["camera:A"]
     assert np.all(output == 200)
+
+    bypass_preview = service.get_camera_display("camera:A", raw)
+
+    assert dsp.requests == ["camera:A"]
+    assert np.all(bypass_preview == 25)

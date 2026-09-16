@@ -115,7 +115,7 @@ app.register_blueprint(create_dsp_blueprint(
     broker=broker,
     dsp_service=dsp_service,
     dsp_store=dsp_store,
-    compositor=service.compositor,
+    live_view_service=service,
 ))
 atexit.register(dsp_service.stop_all)
 

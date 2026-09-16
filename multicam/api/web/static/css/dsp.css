@@ -63,14 +63,27 @@ figure img {
 
 .control-grid {
     display: grid;
-    grid-template-columns: minmax(160px, 220px) minmax(240px, 1fr);
+    grid-template-columns: 130px minmax(170px, 250px) minmax(280px, 1fr);
     gap: 9px 15px;
     align-items: center;
 }
 
 .control-grid output { float: right; color: #8fd3ff; }
 .control-grid input[type="range"] { width: 100%; }
-.control-grid .check { grid-column: span 1; }
+.single-range {
+    display: grid;
+    grid-template-columns: 45px 1fr;
+    gap: 8px;
+    align-items: center;
+}
+.paired-ranges {
+    display: grid;
+    grid-template-columns: 55px 1fr;
+    gap: 4px 8px;
+    align-items: center;
+}
+.paired-ranges label { color: #bbb; font-size: 12px; }
+.control-grid .inactive { opacity: 0.35; }
 .controls p { color: #aaa; margin-bottom: 0; }
 
 @media (max-width: 850px) {

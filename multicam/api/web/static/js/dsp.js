@@ -2,6 +2,9 @@ let dspState = null;
 let selectedCameraId = null;
 let updateTimer = null;
 let applyingState = false;
+let saveInFlight = false;
+let savePending = false;
+let lastSaveStarted = 0;
 
 const cameraSelect = document.getElementById('dsp-camera');
 
@@ -33,16 +36,22 @@ function applyConfigToControls() {
     const config = camera.config;
     applyingState = true;
     document.getElementById('dsp-enabled').checked = config.enabled;
+    document.getElementById('levels-mode').value = config.levels_mode;
     setRange('black-percentile', 'black-value', config.black_percentile);
     setRange('white-percentile', 'white-value', config.white_percentile);
+    document.getElementById('gamma-mode').value = config.gamma_mode;
     setRange('gamma', 'gamma-value', config.gamma, 2);
+    document.getElementById('denoise-mode').value = config.denoise_mode;
     setRange('denoise-radius', 'denoise-value', config.denoise_radius, 0);
+    document.getElementById('sharpen-mode').value = config.sharpen_mode;
     setRange('sharpen', 'sharpen-value', config.sharpen, 2);
+    document.getElementById('edge-mode').value = config.edge_mode;
+    setRange('edge-strength', 'edge-value', config.edge_strength, 2);
     setRange('max-fps', 'fps-value', config.max_fps, 0);
     document.getElementById('palette').value = config.palette;
-    document.getElementById('grayscale').checked = config.grayscale;
-    document.getElementById('invert').checked = config.invert;
+    document.getElementById('invert').value = String(config.invert);
     applyingState = false;
+    updateControlAvailability();
     updatePreviews();
     renderStatus();
 }
@@ -98,20 +107,31 @@ function populateCameras() {
 function configFromControls() {
     return {
         enabled: document.getElementById('dsp-enabled').checked,
+        levels_mode: document.getElementById('levels-mode').value,
         black_percentile: Number(document.getElementById('black-percentile').value),
         white_percentile: Number(document.getElementById('white-percentile').value),
+        gamma_mode: document.getElementById('gamma-mode').value,
         gamma: Number(document.getElementById('gamma').value),
+        denoise_mode: document.getElementById('denoise-mode').value,
         denoise_radius: Number(document.getElementById('denoise-radius').value),
+        sharpen_mode: document.getElementById('sharpen-mode').value,
         sharpen: Number(document.getElementById('sharpen').value),
+        edge_mode: document.getElementById('edge-mode').value,
+        edge_strength: Number(document.getElementById('edge-strength').value),
         max_fps: Number(document.getElementById('max-fps').value),
         palette: document.getElementById('palette').value,
-        grayscale: document.getElementById('grayscale').checked,
-        invert: document.getElementById('invert').checked
+        invert: document.getElementById('invert').value === 'true'
     };
 }
 
 async function saveConfig() {
-    if (!selectedCameraId) return;
+    if (!selectedCameraId || saveInFlight) {
+        savePending = true;
+        return;
+    }
+    saveInFlight = true;
+    savePending = false;
+    lastSaveStarted = performance.now();
     try {
         const camera = await api(`/api/dsp/${encodeURIComponent(selectedCameraId)}`, {
             method: 'PATCH',
@@ -123,14 +143,26 @@ async function saveConfig() {
         renderStatus();
     } catch (error) {
         document.getElementById('dsp-status').textContent = error.message;
+    } finally {
+        saveInFlight = false;
+        if (savePending) scheduleSave(true);
     }
 }
 
-function scheduleSave() {
+function scheduleSave(immediate = false) {
     if (applyingState) return;
     updateReadouts();
-    clearTimeout(updateTimer);
-    updateTimer = setTimeout(saveConfig, 120);
+    updateControlAvailability();
+    savePending = true;
+
+    if (updateTimer !== null || saveInFlight) return;
+
+    const elapsed = performance.now() - lastSaveStarted;
+    const delay = immediate ? 0 : Math.max(0, 50 - elapsed);
+    updateTimer = setTimeout(() => {
+        updateTimer = null;
+        saveConfig();
+    }, delay);
 }
 
 function updateReadouts() {
@@ -140,12 +172,40 @@ function updateReadouts() {
         ['gamma', 'gamma-value', 2],
         ['denoise-radius', 'denoise-value', 0],
         ['sharpen', 'sharpen-value', 2],
+        ['edge-strength', 'edge-value', 2],
         ['max-fps', 'fps-value', 0]
     ];
     for (const [inputId, outputId, digits] of mappings) {
         document.getElementById(outputId).textContent =
             Number(document.getElementById(inputId).value).toFixed(digits);
     }
+}
+
+function setStageActive(modeId, inputIds, activeValue = null) {
+    const mode = document.getElementById(modeId).value;
+    const active = activeValue === null ? mode !== 'off' : mode === activeValue;
+
+    for (const inputId of inputIds) {
+        const input = document.getElementById(inputId);
+        input.disabled = !active;
+        input.closest('div')?.classList.toggle('inactive', !active);
+    }
+}
+
+function updateControlAvailability() {
+    setStageActive(
+        'levels-mode',
+        ['black-percentile', 'white-percentile'],
+        'percentile'
+    );
+    document.getElementById('levels-controls').classList.toggle(
+        'inactive',
+        document.getElementById('levels-mode').value !== 'percentile'
+    );
+    setStageActive('gamma-mode', ['gamma']);
+    setStageActive('denoise-mode', ['denoise-radius']);
+    setStageActive('sharpen-mode', ['sharpen']);
+    setStageActive('edge-mode', ['edge-strength']);
 }
 
 async function refresh(preserveControls = true) {
@@ -162,7 +222,21 @@ cameraSelect.addEventListener('change', () => {
 
 document.querySelectorAll(
     '.controls input, .controls select, #dsp-enabled'
-).forEach(control => control.addEventListener('input', scheduleSave));
+).forEach(control => control.addEventListener('input', () => scheduleSave()));
+
+document.querySelectorAll('.controls select, #dsp-enabled').forEach(control => {
+    control.addEventListener('change', () => {
+        if (control.id === 'denoise-mode' && control.value !== 'off' &&
+            Number(document.getElementById('denoise-radius').value) === 0) {
+            document.getElementById('denoise-radius').value = 1;
+        }
+        if (control.id === 'sharpen-mode' && control.value !== 'off' &&
+            Number(document.getElementById('sharpen').value) === 0) {
+            document.getElementById('sharpen').value = 1;
+        }
+        scheduleSave(true);
+    });
+});
 
 document.getElementById('reset-dsp').addEventListener('click', async () => {
     if (!selectedCameraId) return;
@@ -171,12 +245,17 @@ document.getElementById('reset-dsp').addEventListener('click', async () => {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
             enabled: false,
+            levels_mode: 'off',
             black_percentile: 0,
             white_percentile: 100,
+            gamma_mode: 'off',
             gamma: 1,
+            denoise_mode: 'off',
             denoise_radius: 0,
+            sharpen_mode: 'off',
             sharpen: 0,
-            grayscale: false,
+            edge_mode: 'off',
+            edge_strength: 1,
             invert: false,
             palette: 'normal',
             max_fps: 15

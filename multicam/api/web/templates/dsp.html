@@ -22,11 +22,11 @@
     <main>
         <section class="previews">
             <figure>
-                <figcaption>Raw broker frame</figcaption>
+                <figcaption>Live view — selected camera bypassed</figcaption>
                 <img id="raw-preview" alt="Raw camera preview">
             </figure>
             <figure>
-                <figcaption>Processed display variant</figcaption>
+                <figcaption>Live view — selected camera processed</figcaption>
                 <img id="processed-preview" alt="Processed camera preview">
             </figure>
         </section>
@@ -34,23 +34,63 @@
         <section class="controls">
             <h2>Geometry-preserving display pipeline</h2>
             <div class="control-grid">
-                <label>Black percentile <output id="black-value"></output></label>
-                <input id="black-percentile" type="range" min="0" max="25" step="0.1">
+                <label>Levels</label>
+                <select id="levels-mode">
+                    <option value="off">Off</option>
+                    <option value="minmax">Automatic min/max</option>
+                    <option value="percentile">Percentile stretch</option>
+                </select>
+                <div class="paired-ranges" id="levels-controls">
+                    <label>Black <output id="black-value"></output></label>
+                    <input id="black-percentile" type="range" min="0" max="25" step="0.1">
+                    <label>White <output id="white-value"></output></label>
+                    <input id="white-percentile" type="range" min="75" max="100" step="0.1">
+                </div>
 
-                <label>White percentile <output id="white-value"></output></label>
-                <input id="white-percentile" type="range" min="75" max="100" step="0.1">
+                <label>Gamma</label>
+                <select id="gamma-mode">
+                    <option value="off">Off</option>
+                    <option value="gamma">Power gamma</option>
+                </select>
+                <div class="single-range">
+                    <output id="gamma-value"></output>
+                    <input id="gamma" type="range" min="0.1" max="4" step="0.05">
+                </div>
 
-                <label>Gamma <output id="gamma-value"></output></label>
-                <input id="gamma" type="range" min="0.1" max="4" step="0.05">
+                <label>Denoise</label>
+                <select id="denoise-mode">
+                    <option value="off">Off</option>
+                    <option value="box">Box blur</option>
+                    <option value="gaussian">Gaussian blur</option>
+                    <option value="median">Median filter</option>
+                </select>
+                <div class="single-range">
+                    <output id="denoise-value"></output>
+                    <input id="denoise-radius" type="range" min="0" max="3" step="1">
+                </div>
 
-                <label>Denoise radius <output id="denoise-value"></output></label>
-                <input id="denoise-radius" type="range" min="0" max="3" step="1">
+                <label>Sharpen</label>
+                <select id="sharpen-mode">
+                    <option value="off">Off</option>
+                    <option value="unsharp">Unsharp mask</option>
+                    <option value="sharpen">Sharpen kernel</option>
+                    <option value="edge_enhance">Edge enhance</option>
+                </select>
+                <div class="single-range">
+                    <output id="sharpen-value"></output>
+                    <input id="sharpen" type="range" min="0" max="3" step="0.05">
+                </div>
 
-                <label>Sharpen <output id="sharpen-value"></output></label>
-                <input id="sharpen" type="range" min="0" max="3" step="0.05">
-
-                <label>Maximum DSP FPS <output id="fps-value"></output></label>
-                <input id="max-fps" type="range" min="1" max="60" step="1">
+                <label>Edges / lines</label>
+                <select id="edge-mode">
+                    <option value="off">Off</option>
+                    <option value="sobel">Sobel edges</option>
+                    <option value="laplacian">Laplacian edges</option>
+                </select>
+                <div class="single-range">
+                    <output id="edge-value"></output>
+                    <input id="edge-strength" type="range" min="0" max="1" step="0.05">
+                </div>
 
                 <label>Palette</label>
                 <select id="palette">
@@ -58,9 +98,21 @@
                     <option value="grayscale">Grayscale</option>
                     <option value="iron">Iron</option>
                 </select>
+                <span></span>
 
-                <label class="check"><input id="grayscale" type="checkbox"> Force grayscale</label>
-                <label class="check"><input id="invert" type="checkbox"> Invert</label>
+                <label>Invert</label>
+                <select id="invert">
+                    <option value="false">Off</option>
+                    <option value="true">On</option>
+                </select>
+                <span></span>
+
+                <label>Maximum DSP FPS</label>
+                <span></span>
+                <div class="single-range">
+                    <output id="fps-value"></output>
+                    <input id="max-fps" type="range" min="1" max="60" step="1">
+                </div>
             </div>
             <p>
                 Enable DSP to activate the processed preview. This pipeline changes
