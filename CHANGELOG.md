@@ -33,12 +33,18 @@
   warping in the live compositor.
 - Added validity-mask compositing so pixels outside a rotated or perspective
   target do not darken the reference image.
-- Added Precision auto alignment using 4–12 point pairs and automatic selection
+- Added Precision auto alignment using 6–12 point pairs and automatic selection
   of the simplest similarity, affine, or homography model that fits.
 - Added normalized high-resolution homography estimation, robust outlier
   rejection, per-point residuals, RMS/max error reporting, and residual vectors.
 - Added controls to correct or remove any individual point pair without
   restarting the alignment.
+- Reject ambiguous automatic matches instead of adding misleading pairs, and
+  guide later searches using the current transform's predicted target region.
+- Require a majority correspondence consensus so a 2-of-6 fit cannot produce
+  an apparently valid draft with zero RMS error.
+- Added 1×/2×/4×/8× frozen-frame selection zoom with independent drag panning
+  while preserving native image-coordinate clicks and residual markers.
 
 ### Camera orientation and manual alignment
 

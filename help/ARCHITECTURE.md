@@ -196,6 +196,12 @@ and perspective. The automatic result is only a draft; reported confidence,
 overlay inspection, manual point correction, nudging, acceptance, and undo
 remain operator-facing safeguards.
 
+Alignment freeze currently copies the latest broker preview frame. Browser
+zoom and pan improve native-pixel point placement without changing source
+resolution. Full-resolution calibration capture belongs behind a separate
+backend capability because changing sensor modes may restart streams, alter
+crop/FOV, or affect scientific camera geometry.
+
 Focus analysis is a non-owning consumer of the latest broker frame. It computes
 relative sharpness from raw-value grayscale data inside an operator-selected
 ROI while using the normal display conversion for viewing. Session peak and

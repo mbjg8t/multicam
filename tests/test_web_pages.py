@@ -37,6 +37,8 @@ def test_alignment_page_renders_from_template():
     assert b'id="clear-points"' in response.data
     assert b'id="fit-quality"' in response.data
     assert b"Precision auto" in response.data
+    assert b'id="selection-zoom"' in response.data
+    assert b'id="reset-zoom"' in response.data
 
 
 def test_focus_page_renders_from_template():
@@ -98,3 +100,4 @@ def test_alignment_script_includes_auto_match_workflow():
     assert b"/api/alignment/auto-point" in response.data
     assert b"/api/alignment/point-pairs" in response.data
     assert b"rms_error_px" in response.data
+    assert b"installPanHandler" in response.data

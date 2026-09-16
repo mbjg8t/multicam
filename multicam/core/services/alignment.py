@@ -288,10 +288,65 @@ class AlignmentService:
             center_x - half:center_x + half + 1,
         ]
 
+        target_search = target_edges
+        search_offset_x = 0
+        search_offset_y = 0
+        existing_transform = (
+            current.drafts.get(target_id)
+            or current.transforms.get(target_id)
+        )
+        predicted_target = self._predicted_target_point(
+            existing_transform,
+            reference_point,
+            reference_size,
+            target_size,
+        )
+
+        if predicted_target is not None:
+            predicted_work = (
+                predicted_target[0] * work_width / target_size[0],
+                predicted_target[1] * work_height / target_size[1],
+            )
+            search_radius = max(
+                effective_patch * 2,
+                int(round(max(work_width, work_height) * 0.20)),
+            )
+            search_offset_x = max(
+                0,
+                int(round(predicted_work[0])) - search_radius - half,
+            )
+            search_offset_y = max(
+                0,
+                int(round(predicted_work[1])) - search_radius - half,
+            )
+            search_right = min(
+                target_edges.shape[1],
+                int(round(predicted_work[0])) + search_radius + half + 1,
+            )
+            search_bottom = min(
+                target_edges.shape[0],
+                int(round(predicted_work[1])) + search_radius + half + 1,
+            )
+            candidate = target_edges[
+                search_offset_y:search_bottom,
+                search_offset_x:search_right,
+            ]
+
+            if (
+                candidate.shape[0] >= effective_patch
+                and candidate.shape[1] >= effective_patch
+            ):
+                target_search = candidate
+            else:
+                search_offset_x = 0
+                search_offset_y = 0
+
         match_x, match_y, score, uniqueness = self._normalized_match(
-            target_edges,
+            target_search,
             template,
         )
+        match_x += search_offset_x
+        match_y += search_offset_y
         matched_work_point = (match_x + half, match_y + half)
         matched_reference_point = (
             matched_work_point[0] * reference_size[0] / work_width,
@@ -302,6 +357,10 @@ class AlignmentService:
             matched_reference_point[1] * target_size[1] / reference_size[1],
         )
         confidence = self._confidence_label(score, uniqueness)
+
+        if confidence == "low":
+            raise ValueError("Automatic match is ambiguous")
+
         transform = self.set_point_pair(
             reference_point=reference_point,
             target_point=target_point,
@@ -316,6 +375,46 @@ class AlignmentService:
             patch_size=effective_patch,
             transform=transform,
         )
+
+    @staticmethod
+    def _predicted_target_point(
+        transform: RegistrationTransform | None,
+        reference_point: tuple[float, float],
+        reference_size: tuple[int, int],
+        target_size: tuple[int, int],
+    ) -> tuple[float, float] | None:
+        if (
+            transform is None
+            or transform.reference_size != reference_size
+            or transform.source_size != target_size
+        ):
+            return None
+
+        try:
+            inverse = np.linalg.inv(
+                np.asarray(transform.matrix, dtype=np.float64)
+            )
+        except np.linalg.LinAlgError:
+            return None
+
+        mapped = inverse @ np.asarray((
+            reference_point[0],
+            reference_point[1],
+            1.0,
+        ))
+
+        if abs(float(mapped[2])) <= 1e-12:
+            return None
+
+        point = (float(mapped[0] / mapped[2]), float(mapped[1] / mapped[2]))
+
+        if not (
+            0 <= point[0] < target_size[0]
+            and 0 <= point[1] < target_size[1]
+        ):
+            return None
+
+        return point
 
     def nudge(
         self,
@@ -698,6 +797,12 @@ class AlignmentService:
 
         best_inliers: list[bool] | None = None
         best_score: tuple[int, float] | None = None
+        best_observed_count = 0
+        valid_candidate_seen = False
+        required_consensus = max(
+            minimum,
+            math.ceil(len(source_points) * 0.65),
+        )
 
         for indices in sample_sets:
             try:
@@ -715,8 +820,10 @@ class AlignmentService:
             )
             inliers = [value <= threshold for value in residuals]
             count = sum(inliers)
+            valid_candidate_seen = True
+            best_observed_count = max(best_observed_count, count)
 
-            if count < minimum:
+            if count < required_consensus:
                 continue
 
             score = (count, -cls._inlier_rms(residuals, inliers))
@@ -726,6 +833,13 @@ class AlignmentService:
                 best_inliers = inliers
 
         if best_inliers is None:
+            if valid_candidate_seen:
+                raise ValueError(
+                    f"{model.title()} fit has only {best_observed_count} of "
+                    f"{len(source_points)} consistent pairs; correct or "
+                    "remove bad matches"
+                )
+
             raise ValueError(
                 f"Point layout cannot determine a valid {model} transform"
             )

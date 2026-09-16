@@ -23,11 +23,11 @@
         <label>
             Alignment model
             <select id="alignment-model">
-                <option value="auto" selected>Precision auto — 4–12 pairs</option>
+                <option value="auto" selected>Precision auto — 6–12 pairs</option>
                 <option value="translation">Shift — 1 pair</option>
                 <option value="similarity">Rotate + scale — 2–12 pairs</option>
                 <option value="affine">Stretch + skew — 3–12 pairs</option>
-                <option value="homography">Perspective — 4–12 pairs</option>
+                <option value="homography">Perspective / homography — 6–12 pairs</option>
             </select>
         </label>
 
@@ -35,6 +35,17 @@
             <input id="auto-match" type="checkbox" checked disabled>
             Auto-find target
         </label>
+
+        <label>
+            Selection zoom
+            <select id="selection-zoom">
+                <option value="1" selected>1×</option>
+                <option value="2">2×</option>
+                <option value="4">4×</option>
+                <option value="8">8×</option>
+            </select>
+        </label>
+        <button id="reset-zoom" type="button">Reset zoom/pan</button>
     </header>
 
     <div id="message" class="message">
@@ -48,17 +59,17 @@
 
     <main>
         <section class="frame-panel">
-            <h3>Reference — select well-separated features</h3>
+            <h3>Reference — select features; drag to pan when zoomed</h3>
             <div id="reference-stage" class="image-stage">
-                <img id="reference-image" alt="Frozen reference frame">
+                <img id="reference-image" alt="Frozen reference frame" draggable="false">
                 <span class="empty-label">Freeze frames to begin</span>
             </div>
         </section>
 
         <section class="frame-panel">
-            <h3>Target — automatic match or manual correction</h3>
+            <h3>Target — automatic match or manual correction; drag to pan</h3>
             <div id="target-stage" class="image-stage">
-                <img id="target-image" alt="Frozen target frame">
+                <img id="target-image" alt="Frozen target frame" draggable="false">
                 <span class="empty-label">Freeze frames to begin</span>
             </div>
         </section>

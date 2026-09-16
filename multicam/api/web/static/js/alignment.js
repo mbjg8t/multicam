@@ -2,6 +2,7 @@ let alignmentState = null;
 let pointPairs = [];
 let pendingReferencePoint = null;
 let correctionIndex = null;
+let fitIsCurrent = false;
 
 const referenceSelect = document.getElementById('reference-camera');
 const targetSelect = document.getElementById('target-camera');
@@ -9,6 +10,10 @@ const modelSelect = document.getElementById('alignment-model');
 const referenceImage = document.getElementById('reference-image');
 const targetImage = document.getElementById('target-image');
 const previewImage = document.getElementById('preview-image');
+const viewportStates = {
+    'reference-stage': {zoom: 1, panX: 0, panY: 0, suppressClick: false},
+    'target-stage': {zoom: 1, panX: 0, panY: 0, suppressClick: false}
+};
 
 async function api(path, options = {}) {
     const response = await fetch(path, options);
@@ -32,11 +37,11 @@ function cameraLabel(camera) {
 
 function modelSpec() {
     return {
-        auto: {minimum: 4, maximum: 12, label: 'Precision auto'},
+        auto: {minimum: 6, maximum: 12, label: 'Precision auto'},
         translation: {minimum: 1, maximum: 1, label: 'Shift'},
         similarity: {minimum: 2, maximum: 12, label: 'Rotation + scale'},
         affine: {minimum: 3, maximum: 12, label: 'Stretch + skew'},
-        homography: {minimum: 4, maximum: 12, label: 'Perspective'}
+        homography: {minimum: 6, maximum: 12, label: 'Perspective / homography'}
     }[modelSelect.value];
 }
 
@@ -163,7 +168,10 @@ function updateControls() {
     const minimumReached = pointPairs.length === 0 || (
         pointPairs.length >= modelSpec().minimum
     );
-    document.getElementById('accept').disabled = !isPreview || !minimumReached;
+    document.getElementById('accept').disabled = (
+        !isPreview || !minimumReached || !fitIsCurrent ||
+        pendingReferencePoint !== null
+    );
     document.getElementById('reject').disabled = !isPreview;
     document.getElementById('undo').disabled = !target?.can_undo;
     document.getElementById('clear-points').disabled = (
@@ -215,9 +223,41 @@ function loadImage(image, url) {
     image.classList.remove('loaded');
     image.onload = () => {
         image.classList.add('loaded');
+        applyViewportTransform(image.parentElement, image);
         renderMarkers();
     };
     image.src = url;
+}
+
+function viewportState(stage) {
+    return viewportStates[stage.id] || {
+        zoom: 1,
+        panX: 0,
+        panY: 0,
+        suppressClick: false
+    };
+}
+
+function applyViewportTransform(stage, image) {
+    const viewport = viewportState(stage);
+    image.style.transform = (
+        `translate(${viewport.panX}px, ${viewport.panY}px) ` +
+        `scale(${viewport.zoom})`
+    );
+    stage.classList.toggle('zoomed', viewport.zoom > 1);
+}
+
+function setSelectionZoom(zoom) {
+    for (const [stageId, viewport] of Object.entries(viewportStates)) {
+        viewport.zoom = zoom;
+        viewport.panX = 0;
+        viewport.panY = 0;
+        const stage = document.getElementById(stageId);
+        const image = stage.querySelector('img');
+        applyViewportTransform(stage, image);
+    }
+
+    renderMarkers();
 }
 
 function clearMarkers(stageId) {
@@ -232,6 +272,7 @@ function clearPoints() {
     pointPairs = [];
     pendingReferencePoint = null;
     correctionIndex = null;
+    fitIsCurrent = false;
     clearMarkers('reference-stage');
     clearMarkers('target-stage');
     document.getElementById('fit-panel').hidden = true;
@@ -304,11 +345,21 @@ function displayedImageRect(stage, image) {
         width = height * imageAspect;
     }
 
+    const baseLeft = (stageRect.width - width) / 2;
+    const baseTop = (stageRect.height - height) / 2;
+    const centerX = stageRect.width / 2;
+    const centerY = stageRect.height / 2;
+    const viewport = viewportState(stage);
+
     return {
-        left: (stageRect.width - width) / 2,
-        top: (stageRect.height - height) / 2,
-        width,
-        height,
+        left: (
+            centerX + (baseLeft - centerX) * viewport.zoom + viewport.panX
+        ),
+        top: (
+            centerY + (baseTop - centerY) * viewport.zoom + viewport.panY
+        ),
+        width: width * viewport.zoom,
+        height: height * viewport.zoom,
         stageRect
     };
 }
@@ -464,6 +515,7 @@ async function submitPointPairs(autoMatch = null) {
                 target_points: pointPairs.map(pair => pair.target)
             })
         });
+        fitIsCurrent = true;
         syncPairMetrics();
         updateControls();
         renderMarkers();
@@ -490,6 +542,9 @@ async function submitPointPairs(autoMatch = null) {
             );
         }
     } catch (error) {
+        fitIsCurrent = false;
+        updateControls();
+        renderMarkers();
         showMessage(error.message, true);
     }
 }
@@ -543,6 +598,11 @@ function installPointHandlers() {
     const targetStage = document.getElementById('target-stage');
 
     referenceStage.addEventListener('click', async event => {
+        if (viewportState(referenceStage).suppressClick) {
+            viewportState(referenceStage).suppressClick = false;
+            return;
+        }
+
         const spec = modelSpec();
 
         if (pointPairs.length >= spec.maximum) {
@@ -573,9 +633,65 @@ function installPointHandlers() {
     });
 
     targetStage.addEventListener('click', async event => {
+        if (viewportState(targetStage).suppressClick) {
+            viewportState(targetStage).suppressClick = false;
+            return;
+        }
+
         const point = pointFromClick(event, targetStage, targetImage);
         if (point) await recordManualTarget(point);
     });
+
+    installPanHandler(referenceStage, referenceImage);
+    installPanHandler(targetStage, targetImage);
+}
+
+function installPanHandler(stage, image) {
+    let drag = null;
+
+    stage.addEventListener('pointerdown', event => {
+        const viewport = viewportState(stage);
+
+        if (event.button !== 0 || viewport.zoom <= 1) return;
+
+        drag = {
+            pointerId: event.pointerId,
+            startX: event.clientX,
+            startY: event.clientY,
+            panX: viewport.panX,
+            panY: viewport.panY,
+            moved: false
+        };
+        stage.setPointerCapture(event.pointerId);
+    });
+
+    stage.addEventListener('pointermove', event => {
+        if (!drag || event.pointerId !== drag.pointerId) return;
+
+        const deltaX = event.clientX - drag.startX;
+        const deltaY = event.clientY - drag.startY;
+
+        if (!drag.moved && Math.hypot(deltaX, deltaY) < 4) return;
+
+        drag.moved = true;
+        const viewport = viewportState(stage);
+        viewport.panX = drag.panX + deltaX;
+        viewport.panY = drag.panY + deltaY;
+        stage.classList.add('panning');
+        applyViewportTransform(stage, image);
+        renderMarkers();
+    });
+
+    const finishPan = event => {
+        if (!drag || event.pointerId !== drag.pointerId) return;
+
+        if (drag.moved) viewportState(stage).suppressClick = true;
+        stage.classList.remove('panning');
+        drag = null;
+    };
+
+    stage.addEventListener('pointerup', finishPan);
+    stage.addEventListener('pointercancel', finishPan);
 }
 
 async function clearMatchPoints() {
@@ -621,6 +737,7 @@ async function nudgeTarget(xDirection, yDirection) {
                 y_delta: yDirection * step
             })
         });
+        fitIsCurrent = true;
         updateControls();
         loadImage(previewImage, `/alignment/preview?t=${Date.now()}`);
         showMessage('Nudge created a draft alignment. Accept or reject it.');
@@ -633,6 +750,13 @@ referenceSelect.addEventListener('change', setSelection);
 targetSelect.addEventListener('change', setSelection);
 modelSelect.addEventListener('change', clearMatchPoints);
 document.getElementById('clear-points').addEventListener('click', clearMatchPoints);
+document.getElementById('selection-zoom').addEventListener('change', event => {
+    setSelectionZoom(Number(event.target.value));
+});
+document.getElementById('reset-zoom').addEventListener('click', () => {
+    document.getElementById('selection-zoom').value = '1';
+    setSelectionZoom(1);
+});
 
 document.getElementById('freeze').addEventListener('click', async () => {
     try {

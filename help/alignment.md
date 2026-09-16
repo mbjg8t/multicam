@@ -19,7 +19,7 @@ runtime alignment because the old pixel coordinates are no longer valid.
 
 ## Alignment models
 
-**Precision auto — 4–12 point pairs** is the recommended mode for a flat test
+**Precision auto — 6–12 point pairs** is the recommended mode for a flat test
 chart. It robustly fits similarity, affine, and homography candidates, rejects
 isolated bad pairs, and selects the simplest model that meets the residual
 error threshold.
@@ -32,9 +32,10 @@ Manual model choices remain available:
   scale.
 - **Stretch + skew — 3–12 pairs:** adds independent directional stretch and
   shear without perspective.
-- **Perspective — 4–12 pairs:** also corrects planar keystone differences.
-  While collecting its first four pairs, the preview progresses through
-  translation, similarity, affine, and finally homography.
+- **Perspective / homography — 6–12 pairs:** these are the same 3x3 projective
+  transform. It also corrects planar keystone differences. A provisional
+  homography preview begins at the mathematical minimum of four pairs, but
+  acceptance requires six so incorrect correspondences can be detected.
 
 Use well-defined features that are visible in both spectral bands. Spread the
 points widely across the common field of view. For Perspective, put them near
@@ -53,24 +54,29 @@ four corners of the useful subject plane; do not place them on one line.
    feature in the frozen reference image.
 6. Verify that numbered marker 1 identifies the same physical feature in the
    target. If it is wrong, click the correct target location manually.
-7. Collect at least four widely separated pairs. Six to twelve pairs provide a
-   stronger fit and permit robust rejection of an incorrect match.
+7. Collect at least six widely separated pairs in Precision auto. Four is the
+   mathematical minimum for homography but cannot expose a wrong pair; six to
+   twelve pairs permit meaningful rejection.
 8. Inspect the model, RMS/max error, and per-pair residuals above the images.
    A red pair was rejected. Use **Correct target** for any numbered pair and
    click its correct target location, or remove it without restarting.
-9. Residual lines on the reference show the remaining displacement between the
+9. Use **Selection zoom** (2×, 4×, or 8×) for precise placement. Drag either
+   frozen image to pan it and use **Reset zoom/pan** to return to the full view.
+10. Residual lines on the reference show the remaining displacement between the
    transformed target point and its requested reference point.
-10. Use the arrow buttons to nudge the complete transform by 1, 5, or 20
+11. Use the arrow buttons to nudge the complete transform by 1, 5, or 20
    reference-canvas pixels if needed.
-11. Choose **Accept**, **Reject**, or **Undo accepted**.
-12. Select another target and repeat. The reference remains fixed.
+12. Choose **Accept**, **Reject**, or **Undo accepted**.
+13. Select another target and repeat. The reference remains fixed.
 
 The automatic matcher downsamples the display frames, converts them to gradient
-structure, and searches the complete target frame using normalized
-correlation. This is more useful across visible, NIR, SWIR, and thermal imagery
-than matching raw brightness. Confidence is reported, but the operator must
-inspect and accept the draft. Disable **Auto-find target** for fully manual
-point pairing.
+structure, and initially searches the target using normalized correlation.
+This is more useful across visible, NIR, SWIR, and thermal imagery than matching
+raw brightness. Ambiguous automatic matches are not added; click
+the corresponding target location manually. After a valid initial fit, the
+search is restricted around the position predicted by the current transform.
+The operator must still inspect and accept the draft. Disable **Auto-find
+target** for fully manual point pairing.
 
 ## Status meanings
 
@@ -88,6 +94,11 @@ point pairing.
 - Changing the reference is blocked after alignment work exists. Use **Reset
   all alignments** before choosing a different reference.
 - Frozen frames are the latest available frames and may not be simultaneous.
+- Selection zoom enlarges the frozen frame without inventing detail; point
+  coordinates remain in native frozen-frame pixels. Frozen frames currently
+  use the configured live-preview resolution. A future full-resolution
+  calibration-capture service must request a still safely through each backend
+  without silently changing live sensor geometry.
 - A homography aligns one subject plane. Cameras separated in space will still
   show parallax for objects at different depths; no single 2D transform can
   remove that.

@@ -296,6 +296,118 @@ def test_multi_point_alignment_limits_collection_to_twelve_pairs():
         )
 
 
+def test_robust_fit_rejects_minority_consensus():
+    source_points = [
+        (10.0, 10.0),
+        (100.0, 10.0),
+        (10.0, 100.0),
+        (100.0, 100.0),
+        (50.0, 30.0),
+        (70.0, 80.0),
+    ]
+    reference_points = [
+        (20.0, 20.0),
+        (110.0, 20.0),
+        (400.0, 100.0),
+        (100.0, 450.0),
+        (600.0, 300.0),
+        (250.0, 700.0),
+    ]
+
+    with pytest.raises(ValueError, match="only 2 of 6 consistent pairs"):
+        AlignmentService._robust_fit(
+            "similarity",
+            source_points,
+            reference_points,
+            2.5,
+        )
+
+
+def test_prediction_maps_reference_back_into_target_coordinates():
+    transform = RegistrationTransform(
+        matrix=(
+            (2.0, 0.0, 30.0),
+            (0.0, 2.0, 15.0),
+            (0.0, 0.0, 1.0),
+        ),
+        source_size=(100, 50),
+        reference_size=(200, 100),
+    )
+
+    predicted = AlignmentService._predicted_target_point(
+        transform,
+        (50.0, 35.0),
+        (200, 100),
+        (100, 50),
+    )
+
+    assert predicted == pytest.approx((10.0, 10.0))
+
+
+def test_auto_alignment_rejects_ambiguous_match(monkeypatch):
+    rng = np.random.default_rng(4)
+    image = rng.integers(0, 255, size=(100, 100), dtype=np.uint8)
+    frames = {
+        "reference": Frame(camera_id="reference", image=image),
+        "target": Frame(camera_id="target", image=image.copy()),
+    }
+    state = AlignmentStateStore()
+    state.select("reference", "target")
+    service = AlignmentService(StubBroker(frames), state)
+    service.freeze(["reference", "target"])
+
+    def ambiguous_match(cls, image, template):
+        return 20, 20, 0.50, 0.01
+
+    monkeypatch.setattr(
+        AlignmentService,
+        "_normalized_match",
+        classmethod(ambiguous_match),
+    )
+
+    with pytest.raises(ValueError, match="ambiguous"):
+        service.auto_align(reference_point=(50.0, 50.0))
+
+    assert state.get().drafts == {}
+
+
+def test_auto_alignment_limits_search_around_existing_prediction(monkeypatch):
+    rng = np.random.default_rng(7)
+    image = rng.integers(0, 255, size=(600, 600), dtype=np.uint8)
+    frames = {
+        "reference": Frame(camera_id="reference", image=image),
+        "target": Frame(camera_id="target", image=image.copy()),
+    }
+    state = AlignmentStateStore()
+    state.select("reference", "target")
+    state.set_draft(
+        "target",
+        RegistrationTransform.identity_for_sizes(
+            source_size=(600, 600),
+            reference_size=(600, 600),
+        ),
+    )
+    service = AlignmentService(StubBroker(frames), state)
+    service.freeze(["reference", "target"])
+    searched_shapes = []
+
+    def confident_match(cls, search_image, template):
+        searched_shapes.append(search_image.shape)
+        return 100, 100, 0.80, 0.10
+
+    monkeypatch.setattr(
+        AlignmentService,
+        "_normalized_match",
+        classmethod(confident_match),
+    )
+
+    service.auto_align(reference_point=(300.0, 300.0))
+
+    assert searched_shapes
+    assert searched_shapes[0][0] < 512
+    assert searched_shapes[0][1] < 512
+
+
 def test_nudge_left_multiplies_perspective_transform():
     transform = RegistrationTransform(
         matrix=(

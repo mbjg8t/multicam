@@ -48,6 +48,10 @@ select {
     min-width: 210px;
 }
 
+#selection-zoom {
+    min-width: 75px;
+}
+
 button {
     padding: 7px 12px;
     background: #444;
@@ -155,11 +159,23 @@ main {
     cursor: crosshair;
 }
 
+.image-stage.zoomed {
+    cursor: grab;
+    touch-action: none;
+}
+
+.image-stage.panning {
+    cursor: grabbing;
+}
+
 .image-stage img {
     width: 100%;
     height: 100%;
     object-fit: contain;
     display: none;
+    transform-origin: 50% 50%;
+    user-select: none;
+    -webkit-user-drag: none;
 }
 
 .image-stage img.loaded {
