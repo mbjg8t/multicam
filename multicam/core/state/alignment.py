@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from threading import RLock
+import math
 import time
 
 
@@ -31,6 +32,18 @@ class RegistrationTransform:
     @property
     def y(self) -> float:
         return float(self.matrix[1][2])
+
+    @property
+    def rotation_deg(self) -> float:
+        return math.degrees(math.atan2(self.matrix[1][0], self.matrix[0][0]))
+
+    @property
+    def scale_x(self) -> float:
+        return math.hypot(self.matrix[0][0], self.matrix[1][0])
+
+    @property
+    def scale_y(self) -> float:
+        return math.hypot(self.matrix[0][1], self.matrix[1][1])
 
     @classmethod
     def from_point_pair(
@@ -106,20 +119,20 @@ class RegistrationTransform:
         x_delta: float,
         y_delta: float,
     ) -> RegistrationTransform:
+        row_0, row_1, row_2 = self.matrix
+
         return replace(
             self,
             matrix=(
-                (
-                    self.matrix[0][0],
-                    self.matrix[0][1],
-                    self.x + x_delta,
+                tuple(
+                    row_0[index] + x_delta * row_2[index]
+                    for index in range(3)
                 ),
-                (
-                    self.matrix[1][0],
-                    self.matrix[1][1],
-                    self.y + y_delta,
+                tuple(
+                    row_1[index] + y_delta * row_2[index]
+                    for index in range(3)
                 ),
-                self.matrix[2],
+                row_2,
             ),
             created_at=time.time(),
         )

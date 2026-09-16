@@ -117,6 +117,65 @@ class AlignmentService:
         self.state.set_draft(target_id, transform)
         return transform
 
+    def set_point_pairs(
+        self,
+        *,
+        reference_points: list[tuple[float, float]],
+        target_points: list[tuple[float, float]],
+    ) -> RegistrationTransform:
+        if len(reference_points) != len(target_points):
+            raise ValueError("Reference and target point counts must match")
+        if not 1 <= len(reference_points) <= 4:
+            raise ValueError("Provide between one and four point pairs")
+
+        current = self.state.get()
+        reference_id = current.reference_camera_id
+        target_id = current.target_camera_id
+
+        if reference_id is None or target_id is None:
+            raise ValueError("Select reference and target cameras first")
+
+        with self._lock:
+            reference = self._frozen_frames.get(reference_id)
+            target = self._frozen_frames.get(target_id)
+
+        if reference is None or target is None:
+            raise ValueError("Freeze reference and target frames first")
+
+        reference_size = self._frame_size(reference, reference_id)
+        target_size = self._frame_size(target, target_id)
+
+        for point in reference_points:
+            self._validate_point(point, reference_size, "reference")
+        for point in target_points:
+            self._validate_point(point, target_size, "target")
+
+        if len(reference_points) == 1:
+            return self.set_point_pair(
+                reference_point=reference_points[0],
+                target_point=target_points[0],
+            )
+        if len(reference_points) == 2:
+            matrix = self._solve_similarity(target_points, reference_points)
+            model = "similarity"
+        elif len(reference_points) == 3:
+            matrix = self._solve_affine(target_points, reference_points)
+            model = "affine"
+        else:
+            matrix = self._solve_homography(target_points, reference_points)
+            model = "homography"
+
+        transform = RegistrationTransform(
+            matrix=matrix,
+            model=model,
+            source_size=target_size,
+            reference_size=reference_size,
+            source_points=tuple(target_points),
+            reference_points=tuple(reference_points),
+        )
+        self.state.set_draft(target_id, transform)
+        return transform
+
     def auto_align(
         self,
         *,
@@ -488,6 +547,118 @@ class AlignmentService:
         if score >= 0.40 and uniqueness >= 0.04:
             return "medium"
         return "low"
+
+    @classmethod
+    def _solve_similarity(
+        cls,
+        source_points: list[tuple[float, float]],
+        reference_points: list[tuple[float, float]],
+    ) -> tuple[tuple[float, float, float], ...]:
+        source_0 = np.asarray(source_points[0], dtype=np.float64)
+        source_1 = np.asarray(source_points[1], dtype=np.float64)
+        reference_0 = np.asarray(reference_points[0], dtype=np.float64)
+        reference_1 = np.asarray(reference_points[1], dtype=np.float64)
+        source_delta = source_1 - source_0
+        reference_delta = reference_1 - reference_0
+        denominator = float(source_delta @ source_delta)
+
+        if denominator <= 1e-8:
+            raise ValueError("Target points are too close together")
+
+        a = float(reference_delta @ source_delta) / denominator
+        b = float(
+            reference_delta[1] * source_delta[0]
+            - reference_delta[0] * source_delta[1]
+        ) / denominator
+        linear = np.asarray(((a, -b), (b, a)), dtype=np.float64)
+        translation = reference_0 - linear @ source_0
+        matrix = np.asarray((
+            (a, -b, translation[0]),
+            (b, a, translation[1]),
+            (0.0, 0.0, 1.0),
+        ))
+        return cls._validated_matrix(matrix, "similarity")
+
+    @classmethod
+    def _solve_affine(
+        cls,
+        source_points: list[tuple[float, float]],
+        reference_points: list[tuple[float, float]],
+    ) -> tuple[tuple[float, float, float], ...]:
+        rows = []
+        values = []
+
+        for (x, y), (u, v) in zip(source_points, reference_points):
+            rows.extend((
+                (x, y, 1.0, 0.0, 0.0, 0.0),
+                (0.0, 0.0, 0.0, x, y, 1.0),
+            ))
+            values.extend((u, v))
+
+        design = np.asarray(rows, dtype=np.float64)
+        solution, _, rank, _ = np.linalg.lstsq(
+            design,
+            np.asarray(values, dtype=np.float64),
+            rcond=None,
+        )
+
+        if rank < 6:
+            raise ValueError("Point layout cannot determine an affine transform")
+
+        matrix = np.asarray((
+            (solution[0], solution[1], solution[2]),
+            (solution[3], solution[4], solution[5]),
+            (0.0, 0.0, 1.0),
+        ))
+        return cls._validated_matrix(matrix, "affine")
+
+    @classmethod
+    def _solve_homography(
+        cls,
+        source_points: list[tuple[float, float]],
+        reference_points: list[tuple[float, float]],
+    ) -> tuple[tuple[float, float, float], ...]:
+        rows = []
+        values = []
+
+        for (x, y), (u, v) in zip(source_points, reference_points):
+            rows.extend((
+                (x, y, 1.0, 0.0, 0.0, 0.0, -u * x, -u * y),
+                (0.0, 0.0, 0.0, x, y, 1.0, -v * x, -v * y),
+            ))
+            values.extend((u, v))
+
+        design = np.asarray(rows, dtype=np.float64)
+        solution, _, rank, _ = np.linalg.lstsq(
+            design,
+            np.asarray(values, dtype=np.float64),
+            rcond=None,
+        )
+
+        if rank < 8:
+            raise ValueError("Point layout cannot determine a perspective transform")
+
+        matrix = np.asarray((
+            (solution[0], solution[1], solution[2]),
+            (solution[3], solution[4], solution[5]),
+            (solution[6], solution[7], 1.0),
+        ))
+        return cls._validated_matrix(matrix, "homography")
+
+    @staticmethod
+    def _validated_matrix(
+        matrix: np.ndarray,
+        label: str,
+    ) -> tuple[tuple[float, float, float], ...]:
+        determinant = abs(float(np.linalg.det(matrix)))
+
+        if not np.isfinite(matrix).all() or determinant <= 1e-10:
+            raise ValueError(f"Point layout produced an invalid {label} transform")
+
+        return tuple(
+            tuple(float(value) for value in row)
+            for row in matrix
+        )
 
     def _frame_info(self, frame: Frame) -> FrozenFrameInfo:
         width, height = self._frame_size(frame, frame.camera_id)

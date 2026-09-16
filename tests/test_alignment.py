@@ -125,6 +125,116 @@ def test_alignment_service_rejects_click_outside_frame():
         )
 
 
+def alignment_service_with_large_frames():
+    frames = {
+        "reference": Frame(
+            camera_id="reference",
+            image=np.zeros((1000, 1200), dtype=np.uint8),
+        ),
+        "target": Frame(
+            camera_id="target",
+            image=np.zeros((1000, 1200), dtype=np.uint8),
+        ),
+    }
+    state = AlignmentStateStore()
+    state.select("reference", "target")
+    service = AlignmentService(StubBroker(frames), state)
+    service.freeze(["reference", "target"])
+    return service, state
+
+
+def test_two_point_alignment_solves_rotation_scale_and_translation():
+    service, state = alignment_service_with_large_frames()
+    source_points = [(10.0, 10.0), (30.0, 10.0)]
+    reference_points = [(80.0, 70.0), (80.0, 110.0)]
+
+    transform = service.set_point_pairs(
+        reference_points=reference_points,
+        target_points=source_points,
+    )
+
+    assert transform.model == "similarity"
+    assert np.asarray(transform.matrix) == pytest.approx(np.asarray((
+        (0.0, -2.0, 100.0),
+        (2.0, 0.0, 50.0),
+        (0.0, 0.0, 1.0),
+    )))
+    assert transform.rotation_deg == pytest.approx(90.0)
+    assert transform.scale_x == pytest.approx(2.0)
+    assert state.get().drafts["target"] == transform
+
+
+def test_four_point_alignment_solves_perspective_transform():
+    service, _ = alignment_service_with_large_frames()
+    expected = np.asarray((
+        (1.2, 0.1, 10.0),
+        (0.05, 1.1, 20.0),
+        (0.0005, 0.0002, 1.0),
+    ))
+    source_points = [
+        (50.0, 50.0),
+        (950.0, 60.0),
+        (900.0, 850.0),
+        (80.0, 900.0),
+    ]
+
+    def project(point):
+        mapped = expected @ np.asarray((point[0], point[1], 1.0))
+        return tuple(mapped[:2] / mapped[2])
+
+    reference_points = [project(point) for point in source_points]
+    transform = service.set_point_pairs(
+        reference_points=reference_points,
+        target_points=source_points,
+    )
+
+    assert transform.model == "homography"
+    assert np.asarray(transform.matrix) == pytest.approx(
+        expected,
+        rel=1e-8,
+        abs=1e-8,
+    )
+
+
+def test_multi_point_alignment_rejects_degenerate_layout():
+    service, _ = alignment_service_with_large_frames()
+
+    with pytest.raises(ValueError, match="cannot determine"):
+        service.set_point_pairs(
+            reference_points=[
+                (10.0, 10.0),
+                (20.0, 20.0),
+                (30.0, 30.0),
+                (40.0, 40.0),
+            ],
+            target_points=[
+                (10.0, 10.0),
+                (20.0, 20.0),
+                (30.0, 30.0),
+                (40.0, 40.0),
+            ],
+        )
+
+
+def test_nudge_left_multiplies_perspective_transform():
+    transform = RegistrationTransform(
+        matrix=(
+            (1.0, 0.0, 10.0),
+            (0.0, 1.0, 20.0),
+            (0.01, 0.02, 1.0),
+        ),
+        model="homography",
+    )
+
+    nudged = transform.translated(5.0, -3.0)
+
+    assert nudged.matrix == (
+        (1.05, 0.1, 15.0),
+        (-0.03, 0.94, 17.0),
+        (0.01, 0.02, 1.0),
+    )
+
+
 def test_auto_alignment_finds_cross_spectral_structural_shift():
     reference_image = np.full((140, 180), 20, dtype=np.uint8)
     reference_image[35:95, 75:82] = 230

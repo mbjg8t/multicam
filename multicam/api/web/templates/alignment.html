@@ -20,6 +20,15 @@
 
         <button id="freeze">Freeze all running cameras</button>
 
+        <label>
+            Alignment model
+            <select id="alignment-model">
+                <option value="1">Shift — 1 point pair</option>
+                <option value="2" selected>Rotate + scale — 2 point pairs</option>
+                <option value="4">Perspective — 4 point pairs</option>
+            </select>
+        </label>
+
         <label class="auto-option">
             <input id="auto-match" type="checkbox" checked disabled>
             Auto-find target
@@ -32,10 +41,9 @@
 
     <main>
         <section class="frame-panel">
-            <h3>Reference — click a distinctive feature to auto-match</h3>
+            <h3>Reference — select well-separated features</h3>
             <div id="reference-stage" class="image-stage">
                 <img id="reference-image" alt="Frozen reference frame">
-                <span class="marker"></span>
                 <span class="empty-label">Freeze frames to begin</span>
             </div>
         </section>
@@ -44,7 +52,6 @@
             <h3>Target — automatic match or manual correction</h3>
             <div id="target-stage" class="image-stage">
                 <img id="target-image" alt="Frozen target frame">
-                <span class="marker"></span>
                 <span class="empty-label">Freeze frames to begin</span>
             </div>
         </section>
@@ -75,6 +82,7 @@
             <button class="nudge" data-x="0" data-y="1">↓</button>
         </div>
         <div class="actions">
+            <button id="clear-points" disabled>Clear points</button>
             <button id="accept" disabled>Accept</button>
             <button id="reject" disabled>Reject</button>
             <button id="undo" disabled>Undo accepted</button>

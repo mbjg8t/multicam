@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 from flask import Flask
 import numpy as np
+import pytest
 
 from multicam.api.web.alignment_routes import create_alignment_blueprint
 from multicam.core.cameras import Frame
@@ -112,6 +113,27 @@ def test_guided_alignment_api_workflow(tmp_path):
     assert target["transform"]["x"] == 10.0
     assert target["transform"]["y"] == 10.0
 
+    response = client.post("/api/alignment/point-pairs", json={
+        "reference_points": [
+            {"x": 20, "y": 10},
+            {"x": 20, "y": 35},
+        ],
+        "target_points": [
+            {"x": 5, "y": 5},
+            {"x": 20, "y": 5},
+        ],
+    })
+    assert response.status_code == 200
+    target = next(
+        item
+        for item in response.get_json()["cameras"]
+        if item["id"] == "target"
+    )
+    assert target["transform"]["model"] == "similarity"
+    assert target["transform"]["rotation_deg"] == pytest.approx(90.0)
+    before_nudge_x = target["transform"]["x"]
+    before_nudge_y = target["transform"]["y"]
+
     response = client.post("/api/alignment/nudge", json={
         "x_delta": 5,
         "y_delta": -2,
@@ -122,8 +144,8 @@ def test_guided_alignment_api_workflow(tmp_path):
         for item in response.get_json()["cameras"]
         if item["id"] == "target"
     )
-    assert target["transform"]["x"] == 15.0
-    assert target["transform"]["y"] == 8.0
+    assert target["transform"]["x"] == pytest.approx(before_nudge_x + 5)
+    assert target["transform"]["y"] == pytest.approx(before_nudge_y - 2)
 
     preview = client.get("/alignment/preview")
     assert preview.status_code == 200

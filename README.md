@@ -13,7 +13,8 @@ Implemented:
 - central concurrent acquisition through `CameraManager` and `FrameBroker`
 - generic 0..N camera layers and live compositing
 - live camera-status strip with selectable alignment reference and target
-- one-click structural auto-alignment with confidence, preview, and undo
+- progressive structural alignment: shift, arbitrary rotation/scale, and
+  four-point perspective, with confidence, preview, and undo
 - persistent per-camera display orientation (rotate/flip), applied before alignment
 - manual target nudges with 1, 5, or 20 pixel steps in the Alignment window
 - safe, backend-reported live-preview resolution selection for Pi cameras
@@ -27,7 +28,7 @@ Planned but not yet integrated:
 
 - FLIR Boson backend
 - runtime hot-plug reconciliation
-- automatic alignment refinement, rotation/scale, and calibration profiles
+- automatic multi-point refinement and calibration profiles
 - selectable DSP pipelines
 - MTF Workbench and analysis service
 - measurement sessions, synchronized capture, recording, and reports
@@ -68,11 +69,12 @@ Open `http://<pi-address>:5000` from another computer on the same network.
 
 The main page shows every discovered camera and whether it is streaming with
 frames. Choose **Align to** (the fixed reference) and **Transform** (the camera
-that will move), then open **Alignment**. Freeze the running cameras and click a
-distinctive feature in the reference image. Multicam searches the selected
-target using edge structure, reports match confidence, and creates a 50%
-overlay draft. Accept it, nudge it, or click the target manually to correct the
-match. See
+that will move), then open **Alignment**. Freeze the running cameras, choose a
+one-, two-, or four-point model, and click distinctive features in the
+reference image. Multicam searches the selected target using edge structure,
+reports match confidence, and progressively creates translation,
+rotation/scale, affine, and perspective drafts. Accept the final overlay,
+nudge it, or click a target feature manually to correct the newest match. See
 [`help/alignment.md`](help/alignment.md) for the complete workflow and current
 limitations.
 

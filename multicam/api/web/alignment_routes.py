@@ -37,6 +37,9 @@ def create_alignment_blueprint(
             "matrix": [list(row) for row in transform.matrix],
             "x": transform.x,
             "y": transform.y,
+            "rotation_deg": transform.rotation_deg,
+            "scale_x": transform.scale_x,
+            "scale_y": transform.scale_y,
             "source_size": transform.source_size,
             "reference_size": transform.reference_size,
             "source_points": transform.source_points,
@@ -218,6 +221,11 @@ def create_alignment_blueprint(
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
+        # A new frozen frame set starts a new measurement. Preserve the last
+        # accepted transform, but never leave a draft from the prior frames
+        # available for accidental acceptance.
+        alignment_state.reject(current.target_camera_id)
+
         return jsonify(serialize_alignment())
 
     @blueprint.route("/api/alignment/point-pair", methods=["POST"])
@@ -236,6 +244,28 @@ def create_alignment_blueprint(
             alignment_service.set_point_pair(
                 reference_point=reference_point,
                 target_point=target_point,
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        return jsonify(serialize_alignment())
+
+    @blueprint.route("/api/alignment/point-pairs", methods=["POST"])
+    def alignment_point_pairs_api():
+        data = request.get_json(silent=True) or {}
+
+        try:
+            reference_points = [
+                (float(point["x"]), float(point["y"]))
+                for point in data["reference_points"]
+            ]
+            target_points = [
+                (float(point["x"]), float(point["y"]))
+                for point in data["target_points"]
+            ]
+            alignment_service.set_point_pairs(
+                reference_points=reference_points,
+                target_points=target_points,
             )
         except (KeyError, TypeError, ValueError) as exc:
             return jsonify({"error": str(exc)}), 400

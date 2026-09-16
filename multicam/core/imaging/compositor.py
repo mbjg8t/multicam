@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+from PIL import Image
 
 from multicam.core.cameras import Frame
 from multicam.core.state import (
@@ -162,17 +163,23 @@ class Compositor:
             if source_changed or reference_changed:
                 registration = None
 
-        image = self._resize_nearest(
-            image,
-            base.shape[1],
-            base.shape[0],
-        )
+        if registration is not None:
+            image, mask = self._warp_registration(
+                image,
+                registration,
+                base.shape[1],
+                base.shape[0],
+            )
+        else:
+            image = self._resize_nearest(
+                image,
+                base.shape[1],
+                base.shape[0],
+            )
+            mask = np.full(base.shape[:2], 255, dtype=np.uint8)
 
-        registration_x = registration.x if registration else 0.0
-        registration_y = registration.y if registration else 0.0
-
-        x_offset = int(round(layer.transform.x + registration_x))
-        y_offset = int(round(layer.transform.y + registration_y))
+        x_offset = int(round(layer.transform.x))
+        y_offset = int(round(layer.transform.y))
 
         if x_offset != 0 or y_offset != 0:
             image = self._translate(
@@ -180,24 +187,71 @@ class Compositor:
                 x_offset,
                 y_offset,
             )
+            mask = self._translate(mask, x_offset, y_offset)
 
         opacity = max(
             0.0,
             min(1.0, layer.opacity),
         )
 
+        alpha = opacity * (mask.astype(np.float32) / 255.0)
         blended = (
-            base.astype(np.float32)
-            * (1.0 - opacity)
-            +
-            image.astype(np.float32)
-            * opacity
+            base.astype(np.float32) * (1.0 - alpha[:, :, None])
+            + image.astype(np.float32) * alpha[:, :, None]
         )
 
         return blended.clip(
             0,
             255,
         ).astype(np.uint8)
+
+    def _warp_registration(
+        self,
+        image: np.ndarray,
+        registration: RegistrationTransform,
+        width: int,
+        height: int,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        matrix = np.asarray(registration.matrix, dtype=np.float64)
+
+        try:
+            inverse = np.linalg.inv(matrix)
+        except np.linalg.LinAlgError as exc:
+            raise ValueError("Registration transform is singular") from exc
+
+        if abs(float(inverse[2, 2])) <= 1e-12:
+            raise ValueError("Registration transform has invalid perspective")
+
+        inverse /= inverse[2, 2]
+        coefficients = (
+            float(inverse[0, 0]),
+            float(inverse[0, 1]),
+            float(inverse[0, 2]),
+            float(inverse[1, 0]),
+            float(inverse[1, 1]),
+            float(inverse[1, 2]),
+            float(inverse[2, 0]),
+            float(inverse[2, 1]),
+        )
+        output_size = (width, height)
+        warped = Image.fromarray(image).transform(
+            output_size,
+            Image.Transform.PERSPECTIVE,
+            coefficients,
+            resample=Image.Resampling.BILINEAR,
+            fillcolor=(0, 0, 0),
+        )
+        source_mask = Image.fromarray(
+            np.full(image.shape[:2], 255, dtype=np.uint8)
+        )
+        warped_mask = source_mask.transform(
+            output_size,
+            Image.Transform.PERSPECTIVE,
+            coefficients,
+            resample=Image.Resampling.NEAREST,
+            fillcolor=0,
+        )
+        return np.asarray(warped), np.asarray(warped_mask)
 
     def _resize_nearest(
         self,

@@ -1,10 +1,11 @@
 let alignmentState = null;
-let referencePoint = null;
-let targetPoint = null;
-let lastAutoMatch = null;
+let pointPairs = [];
+let pendingReferencePoint = null;
+let correctionIndex = null;
 
 const referenceSelect = document.getElementById('reference-camera');
 const targetSelect = document.getElementById('target-camera');
+const modelSelect = document.getElementById('alignment-model');
 const referenceImage = document.getElementById('reference-image');
 const targetImage = document.getElementById('target-image');
 const previewImage = document.getElementById('preview-image');
@@ -26,9 +27,18 @@ function showMessage(text, isError = false) {
 }
 
 function cameraLabel(camera) {
-    return camera.model
-        ? `${camera.name} — ${camera.model}`
-        : camera.name;
+    return camera.model ? `${camera.name} — ${camera.model}` : camera.name;
+}
+
+function requiredPointCount() {
+    return Number(modelSelect.value);
+}
+
+function modelName(count = pointPairs.length) {
+    if (count >= 4) return 'Perspective';
+    if (count === 3) return 'Affine';
+    if (count === 2) return 'Rotation + scale';
+    return 'Translation';
 }
 
 function populateSelect(select, selectedId, excludedId) {
@@ -66,31 +76,42 @@ function updateControls() {
 
     const target = selectedCamera();
     const isPreview = target?.alignment_status === 'preview';
-
     document.getElementById('accept').disabled = !isPreview;
     document.getElementById('reject').disabled = !isPreview;
     document.getElementById('undo').disabled = !target?.can_undo;
+    document.getElementById('clear-points').disabled = (
+        pointPairs.length === 0 && !pendingReferencePoint
+    );
 
     const frozenIds = new Set(
         alignmentState.frozen_frames.map(frame => frame.camera_id)
     );
-    const canNudge = (
+    const canAdjust = (
         frozenIds.has(alignmentState.reference_camera_id) &&
         frozenIds.has(alignmentState.target_camera_id)
     );
 
     document.querySelectorAll('.nudge').forEach(button => {
-        button.disabled = !canNudge;
+        button.disabled = !canAdjust;
     });
-    document.getElementById('auto-match').disabled = !canNudge;
+    document.getElementById('auto-match').disabled = !canAdjust;
 
     const summary = document.getElementById('transform-summary');
     if (target?.transform) {
+        const transform = target.transform;
         const label = isPreview ? 'Preview' : 'Accepted';
-        summary.textContent = (
-            `${label}: move X ${target.transform.x.toFixed(1)} px, ` +
-            `Y ${target.transform.y.toFixed(1)} px`
+        let detail = (
+            `${label} ${transform.model}: X ${transform.x.toFixed(1)} px, ` +
+            `Y ${transform.y.toFixed(1)} px`
         );
+
+        if (transform.model !== 'translation') {
+            detail += `, rotation ${transform.rotation_deg.toFixed(2)}°`;
+        }
+        if (transform.model === 'similarity') {
+            detail += `, scale ${transform.scale_x.toFixed(4)}`;
+        }
+        summary.textContent = detail;
     } else {
         summary.textContent = 'No alignment transform for selected target';
     }
@@ -104,28 +125,24 @@ function loadImage(image, url) {
     image.classList.remove('loaded');
     image.onload = () => {
         image.classList.add('loaded');
-
-        if (image === targetImage && targetPoint) {
-            showMarkerAtImagePoint(
-                document.getElementById('target-stage'),
-                targetImage,
-                targetPoint
-            );
-        }
+        renderMarkers();
     };
     image.src = url;
 }
 
-function clearMarker(stageId) {
-    document.querySelector(`#${stageId} .marker`).style.display = 'none';
+function clearMarkers(stageId) {
+    document.querySelectorAll(`#${stageId} .marker`).forEach(marker => {
+        marker.remove();
+    });
 }
 
 function clearPoints() {
-    referencePoint = null;
-    targetPoint = null;
-    lastAutoMatch = null;
-    clearMarker('reference-stage');
-    clearMarker('target-stage');
+    pointPairs = [];
+    pendingReferencePoint = null;
+    correctionIndex = null;
+    clearMarkers('reference-stage');
+    clearMarkers('target-stage');
+    updateControls();
 }
 
 function refreshFrozenImages() {
@@ -171,7 +188,6 @@ async function setSelection() {
             })
         });
         clearPoints();
-        updateControls();
         refreshFrozenImages();
         showMessage('Selection updated. Freeze all running cameras for a new match.');
     } catch (error) {
@@ -205,9 +221,7 @@ function displayedImageRect(stage, image) {
 }
 
 function pointFromClick(event, stage, image) {
-    if (!image.classList.contains('loaded')) {
-        return null;
-    }
+    if (!image.classList.contains('loaded')) return null;
 
     const rendered = displayedImageRect(stage, image);
     const localX = event.clientX - rendered.stageRect.left - rendered.left;
@@ -222,58 +236,106 @@ function pointFromClick(event, stage, image) {
 
     return {
         x: localX * image.naturalWidth / rendered.width,
-        y: localY * image.naturalHeight / rendered.height,
-        markerX: rendered.left + localX,
-        markerY: rendered.top + localY
+        y: localY * image.naturalHeight / rendered.height
     };
 }
 
-function showMarker(stage, point) {
-    const marker = stage.querySelector('.marker');
-    marker.style.left = `${point.markerX}px`;
-    marker.style.top = `${point.markerY}px`;
-    marker.style.display = 'block';
-}
-
-function showMarkerAtImagePoint(stage, image, point) {
-    if (!image.classList.contains('loaded')) {
-        return;
-    }
+function addMarker(stage, image, point, number, pending = false) {
+    if (!image.classList.contains('loaded')) return;
 
     const rendered = displayedImageRect(stage, image);
-    showMarker(stage, {
-        markerX: rendered.left + point.x * rendered.width / image.naturalWidth,
-        markerY: rendered.top + point.y * rendered.height / image.naturalHeight
-    });
+    const marker = document.createElement('span');
+    marker.className = pending ? 'marker pending' : 'marker';
+    marker.textContent = number;
+    marker.style.left = (
+        rendered.left + point.x * rendered.width / image.naturalWidth
+    ) + 'px';
+    marker.style.top = (
+        rendered.top + point.y * rendered.height / image.naturalHeight
+    ) + 'px';
+    marker.style.display = 'flex';
+    stage.append(marker);
 }
 
-async function submitAutoPoint() {
+function renderMarkers() {
+    clearMarkers('reference-stage');
+    clearMarkers('target-stage');
+    const referenceStage = document.getElementById('reference-stage');
+    const targetStage = document.getElementById('target-stage');
+
+    pointPairs.forEach((pair, index) => {
+        addMarker(referenceStage, referenceImage, pair.reference, index + 1);
+        addMarker(targetStage, targetImage, pair.target, index + 1);
+    });
+
+    if (pendingReferencePoint) {
+        addMarker(
+            referenceStage,
+            referenceImage,
+            pendingReferencePoint,
+            pointPairs.length + 1,
+            true
+        );
+    }
+}
+
+async function submitPointPairs(autoMatch = null) {
     try {
-        showMessage('Searching the target for the matching structure...');
-        alignmentState = await api('/api/alignment/auto-point', {
+        alignmentState = await api('/api/alignment/point-pairs', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({reference_point: referencePoint})
+            body: JSON.stringify({
+                reference_points: pointPairs.map(pair => pair.reference),
+                target_points: pointPairs.map(pair => pair.target)
+            })
         });
-        lastAutoMatch = alignmentState.auto_match;
-        targetPoint = lastAutoMatch.target_point;
-        showMarkerAtImagePoint(
-            document.getElementById('target-stage'),
-            targetImage,
-            targetPoint
-        );
         updateControls();
+        renderMarkers();
         loadImage(previewImage, `/alignment/preview?t=${Date.now()}`);
-        const score = (lastAutoMatch.score * 100).toFixed(0);
-        showMessage(
-            `Auto match: ${lastAutoMatch.confidence} confidence ` +
-            `(${score}% structural correlation). Inspect the overlay, ` +
-            'then accept, nudge, or click the target manually to correct it.'
-        );
+
+        const required = requiredPointCount();
+        const count = pointPairs.length;
+        const confidence = autoMatch
+            ? ` Auto match ${autoMatch.confidence} ` +
+                `(${(autoMatch.score * 100).toFixed(0)}%).`
+            : '';
+
+        if (count < required) {
+            showMessage(
+                `Point pair ${count} recorded.${confidence} ` +
+                `Choose reference point ${count + 1} far from the prior points.`
+            );
+        } else {
+            showMessage(
+                `${modelName(count)} draft created from ${count} point pairs.` +
+                `${confidence} Inspect the overlay, then accept, nudge, ` +
+                'correct, or reject it.'
+            );
+        }
     } catch (error) {
-        lastAutoMatch = null;
-        targetPoint = null;
-        clearMarker('target-stage');
+        showMessage(error.message, true);
+    }
+}
+
+async function autoMatchPendingPoint() {
+    try {
+        showMessage('Searching the target for the matching structure...');
+        const result = await api('/api/alignment/auto-point', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({reference_point: pendingReferencePoint})
+        });
+        const autoMatch = result.auto_match;
+        pointPairs.push({
+            reference: pendingReferencePoint,
+            target: autoMatch.target_point
+        });
+        pendingReferencePoint = null;
+        correctionIndex = pointPairs.length - 1;
+        await submitPointPairs(autoMatch);
+    } catch (error) {
+        correctionIndex = null;
+        renderMarkers();
         showMessage(
             `${error.message}. Click the matching target feature manually.`,
             true
@@ -281,65 +343,85 @@ async function submitAutoPoint() {
     }
 }
 
-async function submitPointPair() {
-    if (!referencePoint || !targetPoint) {
+async function recordManualTarget(point) {
+    if (pendingReferencePoint) {
+        pointPairs.push({
+            reference: pendingReferencePoint,
+            target: point
+        });
+        pendingReferencePoint = null;
+        correctionIndex = pointPairs.length - 1;
+    } else if (correctionIndex !== null && pointPairs[correctionIndex]) {
+        pointPairs[correctionIndex].target = point;
+    } else {
+        showMessage('Click a reference feature first.', true);
         return;
     }
 
-    try {
-        lastAutoMatch = null;
-        alignmentState = await api('/api/alignment/point-pair', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                reference_point: referencePoint,
-                target_point: targetPoint
-            })
-        });
-        updateControls();
-        loadImage(previewImage, `/alignment/preview?t=${Date.now()}`);
-        showMessage('Draft alignment created. Inspect the overlay, then accept or reject it.');
-    } catch (error) {
-        showMessage(error.message, true);
-    }
+    await submitPointPairs();
 }
 
-function installPointHandler(stageId, image, isReference) {
-    const stage = document.getElementById(stageId);
-    stage.addEventListener('click', async event => {
-        const point = pointFromClick(event, stage, image);
-        if (!point) {
+function installPointHandlers() {
+    const referenceStage = document.getElementById('reference-stage');
+    const targetStage = document.getElementById('target-stage');
+
+    referenceStage.addEventListener('click', async event => {
+        if (pointPairs.length >= requiredPointCount()) {
+            showMessage(
+                'This model has all required pairs. Accept or clear points to retry.',
+                true
+            );
             return;
         }
 
-        showMarker(stage, point);
-        const payloadPoint = {x: point.x, y: point.y};
+        const point = pointFromClick(event, referenceStage, referenceImage);
+        if (!point) return;
 
-        if (isReference) {
-            referencePoint = payloadPoint;
-            targetPoint = null;
-            lastAutoMatch = null;
-            clearMarker('target-stage');
-            if (document.getElementById('auto-match').checked) {
-                await submitAutoPoint();
-            } else {
-                showMessage('Now click the same physical feature in the target image.');
-            }
+        pendingReferencePoint = point;
+        correctionIndex = null;
+        renderMarkers();
+        updateControls();
+
+        if (document.getElementById('auto-match').checked) {
+            await autoMatchPendingPoint();
         } else {
-            if (!referencePoint) {
-                showMessage('Click the reference feature first.', true);
-                return;
-            }
-            targetPoint = payloadPoint;
-            await submitPointPair();
+            showMessage(
+                `Reference point ${pointPairs.length + 1} selected. ` +
+                'Click the same physical feature in the target image.'
+            );
         }
+    });
+
+    targetStage.addEventListener('click', async event => {
+        const point = pointFromClick(event, targetStage, targetImage);
+        if (point) await recordManualTarget(point);
     });
 }
 
-async function runAction(path, successMessage) {
+async function clearMatchPoints() {
+    const target = selectedCamera();
+
+    if (target?.alignment_status === 'preview') {
+        try {
+            alignmentState = await api('/api/alignment/reject', {method: 'POST'});
+        } catch (error) {
+            showMessage(error.message, true);
+            return;
+        }
+    }
+
+    clearPoints();
+    loadImage(previewImage, `/alignment/preview?t=${Date.now()}`);
+    showMessage('Match points cleared; accepted alignment is unchanged.');
+}
+
+async function runAction(path, successMessage, clearAfter = false) {
     try {
         alignmentState = await api(path, {method: 'POST'});
-        updateControls();
+
+        if (clearAfter) clearPoints();
+        else updateControls();
+
         loadImage(previewImage, `/alignment/preview?t=${Date.now()}`);
         showMessage(successMessage);
     } catch (error) {
@@ -369,18 +451,20 @@ async function nudgeTarget(xDirection, yDirection) {
 
 referenceSelect.addEventListener('change', setSelection);
 targetSelect.addEventListener('change', setSelection);
+modelSelect.addEventListener('change', clearMatchPoints);
+document.getElementById('clear-points').addEventListener('click', clearMatchPoints);
 
 document.getElementById('freeze').addEventListener('click', async () => {
     try {
         alignmentState = await api('/api/alignment/freeze', {method: 'POST'});
         clearPoints();
-        updateControls();
         refreshFrozenImages();
         const skewMs = alignmentState.timestamp_skew_ns / 1_000_000;
         showMessage(
             `Frozen ${alignmentState.frozen_frames.length} cameras; ` +
             `maximum timestamp skew ${skewMs.toFixed(1)} ms. ` +
-            'Click a distinctive feature in the reference image to auto-match it.'
+            `Collect ${requiredPointCount()} point pair(s) for ` +
+            `${modelName(requiredPointCount())}.`
         );
     } catch (error) {
         showMessage(error.message, true);
@@ -391,27 +475,27 @@ document.getElementById('accept').addEventListener('click', () => {
     runAction('/api/alignment/accept', 'Alignment accepted.');
 });
 document.getElementById('reject').addEventListener('click', () => {
-    runAction('/api/alignment/reject', 'Draft rejected; accepted alignment is unchanged.');
+    runAction(
+        '/api/alignment/reject',
+        'Draft rejected; accepted alignment is unchanged.',
+        true
+    );
 });
 document.getElementById('undo').addEventListener('click', () => {
-    runAction('/api/alignment/undo', 'Last accepted alignment undone.');
+    runAction('/api/alignment/undo', 'Last accepted alignment undone.', true);
 });
 document.getElementById('reset').addEventListener('click', () => {
     if (window.confirm('Clear every accepted and pending alignment?')) {
-        runAction('/api/alignment/reset', 'All runtime alignments cleared.');
+        runAction('/api/alignment/reset', 'All runtime alignments cleared.', true);
     }
 });
 
 document.querySelectorAll('.nudge').forEach(button => {
     button.addEventListener('click', () => {
-        nudgeTarget(
-            Number(button.dataset.x),
-            Number(button.dataset.y)
-        );
+        nudgeTarget(Number(button.dataset.x), Number(button.dataset.y));
     });
 });
 
-installPointHandler('reference-stage', referenceImage, true);
-installPointHandler('target-stage', targetImage, false);
-
+window.addEventListener('resize', renderMarkers);
+installPointHandlers();
 refresh().catch(error => showMessage(error.message, true));

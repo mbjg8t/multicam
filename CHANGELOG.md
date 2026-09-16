@@ -27,6 +27,12 @@
   target camera, with high/medium/low confidence reporting.
 - Preserved manual target clicking, draft preview, nudging, rejection, and undo
   as correction and validation paths.
+- Added progressive numbered point pairs with explicit Shift (one point),
+  Rotate + Scale (two points), and Perspective (four points) modes.
+- Added exact similarity, affine, and homography solvers and full 3x3 inverse
+  warping in the live compositor.
+- Added validity-mask compositing so pixels outside a rotated or perspective
+  target do not darken the reference image.
 
 ### Camera orientation and manual alignment
 
@@ -69,6 +75,6 @@
 
 - Runtime hot-plug reconciliation.
 - Selectable DSP pipelines with raw-data preservation.
-- Automatic alignment refinement, rotation/scale, and calibration profiles.
+- Automatic multi-point refinement and calibration profiles.
 - MTF service and MTF Workbench integration.
 - Measurement sessions, synchronized capture, recording, and reports.

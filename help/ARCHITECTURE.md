@@ -177,17 +177,22 @@ flowchart TD
 
 Shared state and events connect all application services and user interfaces.
 
-Alignment registration is distinct from display-layer positioning. A
-registration matrix maps each target camera's source pixels into the selected
-reference camera's pixel space. The compositor applies the accepted transform
-after normalizing the source image to the reference canvas. Draft transforms
-are shared at runtime for live preview but can be rejected before acceptance.
+Alignment registration is distinct from display-layer positioning. A 3x3
+registration matrix maps each target camera's source pixels directly into the
+selected reference camera's pixel space. One point produces translation with
+frame-size normalization, two points produce a similarity transform, three
+points produce the progressive affine draft, and four points produce a planar
+homography. The compositor inverse-warps the source and a validity mask onto
+the reference canvas so uncovered pixels do not affect underlying layers.
+Draft transforms are shared at runtime for live preview but can be rejected
+before acceptance.
 
 Automatic point matching operates on reduced gradient maps and normalized
 correlation, keeping it portable and less dependent on spectral brightness.
-The automatic result is only a draft; reported confidence, overlay inspection,
-manual point correction, nudging, acceptance, and undo remain operator-facing
-safeguards.
+Each matched feature is combined with prior pairs to estimate rotation, scale,
+and perspective. The automatic result is only a draft; reported confidence,
+overlay inspection, manual point correction, nudging, acceptance, and undo
+remain operator-facing safeguards.
 
 Focus analysis is a non-owning consumer of the latest broker frame. It computes
 relative sharpness from raw-value grayscale data inside an operator-selected

@@ -173,3 +173,71 @@ def test_compositor_uses_alignment_reference_canvas_and_translation():
     assert output.shape == (4, 4, 3)
     assert output[0, 1].tolist() == [255, 255, 255]
     assert output[0, 0].tolist() == [0, 0, 0]
+
+
+def test_compositor_applies_arbitrary_rotation_registration():
+    target = np.zeros((7, 7, 3), dtype=np.uint8)
+    target[1:3, 4:6] = (255, 40, 10)
+    frames = {
+        "reference": Frame(
+            camera_id="reference",
+            image=np.zeros((12, 12, 3), dtype=np.uint8),
+        ),
+        "target": Frame(camera_id="target", image=target),
+    }
+    view = ViewState(layers=[CameraLayer(camera_id="target")])
+    registration = RegistrationTransform(
+        matrix=(
+            (0.0, -1.0, 8.0),
+            (1.0, 0.0, 1.0),
+            (0.0, 0.0, 1.0),
+        ),
+        model="similarity",
+        source_size=(7, 7),
+        reference_size=(12, 12),
+    )
+
+    output = Compositor().compose(
+        frames,
+        view,
+        registrations={"target": registration},
+        reference_camera_id="reference",
+    )
+
+    red_pixels = np.argwhere(output[:, :, 0] > 200)
+    assert red_pixels[:, 0].min() >= 5
+    assert red_pixels[:, 0].max() <= 7
+    assert red_pixels[:, 1].min() >= 5
+    assert red_pixels[:, 1].max() <= 7
+
+
+def test_registration_mask_preserves_reference_outside_warped_target():
+    reference = np.full((10, 10, 3), 100, dtype=np.uint8)
+    target = np.full((4, 4, 3), 200, dtype=np.uint8)
+    frames = {
+        "reference": Frame(camera_id="reference", image=reference),
+        "target": Frame(camera_id="target", image=target),
+    }
+    view = ViewState(layers=[
+        CameraLayer(camera_id="reference", opacity=1.0, z_order=0),
+        CameraLayer(camera_id="target", opacity=0.5, z_order=1),
+    ])
+    registration = RegistrationTransform(
+        matrix=(
+            (1.0, 0.0, 3.0),
+            (0.0, 1.0, 2.0),
+            (0.0, 0.0, 1.0),
+        ),
+        source_size=(4, 4),
+        reference_size=(10, 10),
+    )
+
+    output = Compositor().compose(
+        frames,
+        view,
+        registrations={"target": registration},
+        reference_camera_id="reference",
+    )
+
+    assert output[0, 0].tolist() == [100, 100, 100]
+    assert output[3, 4].tolist() == [150, 150, 150]
