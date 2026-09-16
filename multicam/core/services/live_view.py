@@ -105,3 +105,12 @@ class LiveViewService:
             else None
         )
         return self.compositor.orient_display_image(frame.image, orientation)
+
+    def get_camera_preview(self, camera_id, frame):
+        """Render one camera with display orientation and no other layers."""
+        orientation = (
+            self.orientation_store.get(camera_id)
+            if self.orientation_store is not None
+            else None
+        )
+        return self.compositor.orient_display_image(frame.image, orientation)

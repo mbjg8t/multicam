@@ -23,21 +23,24 @@ class DspPipeline:
         output = cls._levels_and_gamma(source, config)
         output = cls._denoise(output, config)
         output = cls._sharpen(output, config)
-        gray_u8 = cls._luminance_u8(output)
-
         if config.edge_mode != "off":
+            gray_u8 = cls._luminance_u8(output)
             edges = cls._edges(gray_u8, config.edge_mode)
             edge_rgb = np.repeat(edges[:, :, None], 3, axis=2)
             strength = float(config.edge_strength)
-            output = np.rint(
-                output.astype(np.float32) * (1.0 - strength)
-                + edge_rgb.astype(np.float32) * strength
-            ).clip(0, 255).astype(np.uint8)
-            gray_u8 = cls._luminance_u8(output)
+            if strength >= 1.0:
+                output = edge_rgb
+            elif strength > 0.0:
+                output = np.rint(
+                    output.astype(np.float32) * (1.0 - strength)
+                    + edge_rgb.astype(np.float32) * strength
+                ).clip(0, 255).astype(np.uint8)
 
         if config.palette == "iron":
+            gray_u8 = cls._luminance_u8(output)
             output = cls._iron_palette(gray_u8.astype(np.float32) / 255.0)
         elif config.palette == "grayscale":
+            gray_u8 = cls._luminance_u8(output)
             output = np.repeat(gray_u8[:, :, None], 3, axis=2)
 
         if config.invert:
@@ -51,6 +54,15 @@ class DspPipeline:
         image: np.ndarray,
         config: DspConfig,
     ) -> np.ndarray:
+        if (
+            image.dtype == np.uint8
+            and config.levels_mode == "off"
+            and config.gamma_mode == "off"
+        ):
+            if image.ndim == 2:
+                return np.repeat(image[:, :, None], 3, axis=2)
+            return image
+
         if not np.issubdtype(image.dtype, np.integer):
             finite = np.nan_to_num(image.astype(np.float32), copy=False)
             maximum = float(np.max(finite))
@@ -149,39 +161,26 @@ class DspPipeline:
 
     @staticmethod
     def _luminance_u8(rgb: np.ndarray) -> np.ndarray:
-        values = rgb.astype(np.uint16)
-        return (
-            values[:, :, 0] * 77
-            + values[:, :, 1] * 150
-            + values[:, :, 2] * 29
-        ).astype(np.uint32).clip(0, 65280).__floordiv__(256).astype(np.uint8)
+        return np.asarray(Image.fromarray(rgb).convert("L"))
 
     @staticmethod
     def _edges(gray: np.ndarray, mode: str) -> np.ndarray:
-        values = gray.astype(np.int16)
-        padded = np.pad(values, 1, mode="edge")
-
+        image = Image.fromarray(gray)
         if mode == "laplacian":
-            response = np.abs(
-                padded[:-2, 1:-1]
-                + padded[2:, 1:-1]
-                + padded[1:-1, :-2]
-                + padded[1:-1, 2:]
-                - 4 * values
+            filtered = image.filter(
+                ImageFilter.Kernel(
+                    (3, 3),
+                    (-1, -1, -1, -1, 8, -1, -1, -1, -1),
+                    scale=1,
+                )
             )
         else:
-            gx = (
-                -padded[:-2, :-2] + padded[:-2, 2:]
-                - 2 * padded[1:-1, :-2] + 2 * padded[1:-1, 2:]
-                - padded[2:, :-2] + padded[2:, 2:]
-            )
-            gy = (
-                -padded[:-2, :-2] - 2 * padded[:-2, 1:-1] - padded[:-2, 2:]
-                + padded[2:, :-2] + 2 * padded[2:, 1:-1] + padded[2:, 2:]
-            )
-            response = np.abs(gx) + np.abs(gy)
+            # Pillow's compiled 3x3 edge detector avoids several full-frame
+            # NumPy gradient temporaries. It serves the same display purpose
+            # as the earlier Sobel magnitude at a fraction of the Pi cost.
+            filtered = image.filter(ImageFilter.FIND_EDGES)
 
-        return np.clip(response, 0, 255).astype(np.uint8)
+        return np.asarray(filtered)
 
     @staticmethod
     def _iron_palette(gray: np.ndarray) -> np.ndarray:

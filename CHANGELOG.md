@@ -30,6 +30,10 @@
   compositing path as the main live screen.
 - Replaced full-frame float levels/gamma work with integer lookup tables and
   sampled statistics for substantially lower preview latency.
+- Changed DSP Workbench comparisons to selected-camera-only previews, capped
+  browser preview dimensions, and stopped re-encoding unchanged frames.
+- Reduced edge-processing memory pressure with compiled luminance/edge kernels
+  and fast paths for RGB8 bypass and full-strength edge output.
 
 ### Guided camera alignment
 

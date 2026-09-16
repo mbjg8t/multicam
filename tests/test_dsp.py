@@ -177,3 +177,29 @@ def test_live_view_selects_dsp_variant_for_layer_compositing():
 
     assert dsp.requests == ["camera:A"]
     assert np.all(bypass_preview == 25)
+
+
+def test_dsp_camera_preview_excludes_other_composite_layers():
+    selected = Frame(
+        camera_id="camera:A",
+        image=np.full((4, 4, 3), 25, dtype=np.uint8),
+    )
+    other = Frame(
+        camera_id="camera:B",
+        image=np.full((4, 4, 3), 200, dtype=np.uint8),
+    )
+
+    class MultiBroker:
+        def get_latest(self, camera_id):
+            return {"camera:A": selected, "camera:B": other}.get(camera_id)
+
+    state = ViewStateStore()
+    state.add_layer(CameraLayer(camera_id="camera:A", z_order=0))
+    state.add_layer(CameraLayer(camera_id="camera:B", z_order=1))
+    service = LiveViewService(manager=None, broker=MultiBroker(), state=state)
+
+    composite = service.get_composite()
+    preview = service.get_camera_preview("camera:A", selected)
+
+    assert np.all(composite == 200)
+    assert np.all(preview == 25)

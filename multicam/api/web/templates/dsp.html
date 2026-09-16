@@ -22,11 +22,11 @@
     <main>
         <section class="previews">
             <figure>
-                <figcaption>Live view — selected camera bypassed</figcaption>
+                <figcaption>Selected camera — DSP bypassed</figcaption>
                 <img id="raw-preview" alt="Raw camera preview">
             </figure>
             <figure>
-                <figcaption>Live view — selected camera processed</figcaption>
+                <figcaption>Selected camera — DSP processed</figcaption>
                 <img id="processed-preview" alt="Processed camera preview">
             </figure>
         </section>
@@ -84,7 +84,7 @@
                 <label>Edges / lines</label>
                 <select id="edge-mode">
                     <option value="off">Off</option>
-                    <option value="sobel">Sobel edges</option>
+                    <option value="sobel">Fast 3×3 edges</option>
                     <option value="laplacian">Laplacian edges</option>
                 </select>
                 <div class="single-range">

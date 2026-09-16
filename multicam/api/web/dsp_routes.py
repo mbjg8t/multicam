@@ -4,6 +4,7 @@ import io
 import time
 
 from flask import Blueprint, Response, jsonify, render_template, request
+import numpy as np
 from PIL import Image
 
 
@@ -108,6 +109,7 @@ def create_dsp_blueprint(
             return jsonify({"error": "Camera is not open"}), 404
 
         def generate():
+            last_key = None
             while True:
                 frame = (
                     dsp_service.get_frame(camera_id)
@@ -118,16 +120,41 @@ def create_dsp_blueprint(
                     time.sleep(0.08)
                     continue
 
-                image = live_view_service.get_camera_display(camera_id, frame)
+                dsp_metadata = frame.metadata.get("dsp", {})
+                key = (
+                    id(frame),
+                    frame.frame_number,
+                    frame.monotonic_timestamp_ns,
+                    dsp_metadata.get("revision"),
+                )
+                if key == last_key:
+                    time.sleep(0.02)
+                    continue
+
+                image = live_view_service.get_camera_preview(camera_id, frame)
+                height, width = image.shape[:2]
+                preview_limit = 1280
+                if max(width, height) > preview_limit:
+                    scale = preview_limit / max(width, height)
+                    image = np.asarray(
+                        Image.fromarray(image).resize(
+                            (
+                                max(1, round(width * scale)),
+                                max(1, round(height * scale)),
+                            ),
+                            Image.Resampling.BILINEAR,
+                        )
+                    )
                 buffer = io.BytesIO()
-                Image.fromarray(image).save(buffer, format="JPEG", quality=88)
+                Image.fromarray(image).save(buffer, format="JPEG", quality=85)
+                last_key = key
                 yield (
                     b"--frame\r\n"
                     b"Content-Type: image/jpeg\r\n\r\n"
                     + buffer.getvalue()
                     + b"\r\n"
                 )
-                time.sleep(0.06)
+                time.sleep(0.03)
 
         return Response(
             generate(),

@@ -71,9 +71,9 @@ def test_dsp_page_renders_from_template():
     assert b'id="denoise-mode"' in response.data
     assert b'id="sharpen-mode"' in response.data
     assert b'id="edge-mode"' in response.data
-    assert b"Sobel edges" in response.data
+    assert "Fast 3×3 edges".encode() in response.data
     assert b"Laplacian edges" in response.data
-    assert b"Live view" in response.data
+    assert b"Selected camera" in response.data
 
 
 def test_alignment_status_api_is_available_without_cameras():
