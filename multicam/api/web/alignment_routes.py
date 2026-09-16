@@ -44,6 +44,10 @@ def create_alignment_blueprint(
             "reference_size": transform.reference_size,
             "source_points": transform.source_points,
             "reference_points": transform.reference_points,
+            "residuals_px": transform.residuals_px,
+            "inlier_mask": transform.inlier_mask,
+            "rms_error_px": transform.rms_error_px,
+            "max_error_px": transform.max_error_px,
             "created_at": transform.created_at,
         }
 
@@ -266,6 +270,7 @@ def create_alignment_blueprint(
             alignment_service.set_point_pairs(
                 reference_points=reference_points,
                 target_points=target_points,
+                requested_model=str(data.get("model", "auto")),
             )
         except (KeyError, TypeError, ValueError) as exc:
             return jsonify({"error": str(exc)}), 400

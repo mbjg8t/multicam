@@ -23,9 +23,11 @@
         <label>
             Alignment model
             <select id="alignment-model">
-                <option value="1">Shift — 1 point pair</option>
-                <option value="2" selected>Rotate + scale — 2 point pairs</option>
-                <option value="4">Perspective — 4 point pairs</option>
+                <option value="auto" selected>Precision auto — 4–12 pairs</option>
+                <option value="translation">Shift — 1 pair</option>
+                <option value="similarity">Rotate + scale — 2–12 pairs</option>
+                <option value="affine">Stretch + skew — 3–12 pairs</option>
+                <option value="homography">Perspective — 4–12 pairs</option>
             </select>
         </label>
 
@@ -38,6 +40,11 @@
     <div id="message" class="message">
         Select two streaming cameras, then freeze the frames.
     </div>
+
+    <section id="fit-panel" class="fit-panel" hidden>
+        <div id="fit-quality">No point pairs</div>
+        <div id="point-pair-list" class="point-pair-list"></div>
+    </section>
 
     <main>
         <section class="frame-panel">

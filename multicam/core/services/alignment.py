@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import combinations
 from threading import RLock
 from typing import Any
 import copy
+import math
 
 import numpy as np
 
@@ -122,11 +124,20 @@ class AlignmentService:
         *,
         reference_points: list[tuple[float, float]],
         target_points: list[tuple[float, float]],
+        requested_model: str = "auto",
     ) -> RegistrationTransform:
         if len(reference_points) != len(target_points):
             raise ValueError("Reference and target point counts must match")
-        if not 1 <= len(reference_points) <= 4:
-            raise ValueError("Provide between one and four point pairs")
+        if not 1 <= len(reference_points) <= 12:
+            raise ValueError("Provide between one and twelve point pairs")
+        if requested_model not in {
+            "auto",
+            "translation",
+            "similarity",
+            "affine",
+            "homography",
+        }:
+            raise ValueError("Unknown alignment model")
 
         current = self.state.get()
         reference_id = current.reference_camera_id
@@ -150,20 +161,55 @@ class AlignmentService:
         for point in target_points:
             self._validate_point(point, target_size, "target")
 
-        if len(reference_points) == 1:
+        point_count = len(reference_points)
+
+        if point_count == 1 or requested_model == "translation":
             return self.set_point_pair(
                 reference_point=reference_points[0],
                 target_point=target_points[0],
             )
-        if len(reference_points) == 2:
-            matrix = self._solve_similarity(target_points, reference_points)
-            model = "similarity"
-        elif len(reference_points) == 3:
-            matrix = self._solve_affine(target_points, reference_points)
-            model = "affine"
+
+        progressive_model = requested_model
+
+        if requested_model == "auto":
+            progressive_model = (
+                "similarity"
+                if point_count == 2
+                else "affine"
+                if point_count == 3
+                else "auto"
+            )
+        elif requested_model == "homography" and point_count < 4:
+            progressive_model = "similarity" if point_count == 2 else "affine"
+        elif requested_model == "affine" and point_count < 3:
+            progressive_model = "similarity"
+
+        threshold = self._residual_threshold(reference_size)
+
+        if progressive_model == "auto":
+            fit = self._select_model(
+                target_points,
+                reference_points,
+                threshold,
+            )
         else:
-            matrix = self._solve_homography(target_points, reference_points)
-            model = "homography"
+            fit = self._robust_fit(
+                progressive_model,
+                target_points,
+                reference_points,
+                threshold,
+            )
+
+        matrix, model, residuals, inliers = fit
+        inlier_residuals = [
+            residual
+            for residual, inlier in zip(residuals, inliers)
+            if inlier
+        ]
+        rms_error = math.sqrt(
+            sum(value * value for value in inlier_residuals)
+            / len(inlier_residuals)
+        )
 
         transform = RegistrationTransform(
             matrix=matrix,
@@ -172,6 +218,10 @@ class AlignmentService:
             reference_size=reference_size,
             source_points=tuple(target_points),
             reference_points=tuple(reference_points),
+            residuals_px=tuple(residuals),
+            inlier_mask=tuple(inliers),
+            rms_error_px=rms_error,
+            max_error_px=max(inlier_residuals),
         )
         self.state.set_draft(target_id, transform)
         return transform
@@ -548,33 +598,223 @@ class AlignmentService:
             return "medium"
         return "low"
 
+    @staticmethod
+    def _residual_threshold(reference_size: tuple[int, int]) -> float:
+        width, height = reference_size
+        return max(2.5, math.hypot(width, height) * 0.0015)
+
+    @classmethod
+    def _select_model(
+        cls,
+        source_points: list[tuple[float, float]],
+        reference_points: list[tuple[float, float]],
+        threshold: float,
+    ) -> tuple[
+        tuple[tuple[float, float, float], ...],
+        str,
+        list[float],
+        list[bool],
+    ]:
+        candidates = []
+
+        for model in ("similarity", "affine", "homography"):
+            try:
+                candidates.append(cls._robust_fit(
+                    model,
+                    source_points,
+                    reference_points,
+                    threshold,
+                ))
+            except ValueError:
+                continue
+
+        if not candidates:
+            raise ValueError("Point layout cannot determine a valid transform")
+        minimum_inliers = max(4, math.ceil(len(source_points) * 0.75))
+        best_inlier_count = max(sum(candidate[3]) for candidate in candidates)
+
+        for candidate in candidates:
+            _, _, residuals, inliers = candidate
+            inlier_residuals = [
+                residual
+                for residual, inlier in zip(residuals, inliers)
+                if inlier
+            ]
+            rms = math.sqrt(
+                sum(value * value for value in inlier_residuals)
+                / len(inlier_residuals)
+            )
+
+            if (
+                len(inlier_residuals) == best_inlier_count
+                and len(inlier_residuals) >= minimum_inliers
+                and rms <= threshold
+            ):
+                return candidate
+
+        return max(
+            candidates,
+            key=lambda item: (
+                sum(item[3]),
+                -cls._inlier_rms(item[2], item[3]),
+            ),
+        )
+
+    @classmethod
+    def _robust_fit(
+        cls,
+        model: str,
+        source_points: list[tuple[float, float]],
+        reference_points: list[tuple[float, float]],
+        threshold: float,
+    ) -> tuple[
+        tuple[tuple[float, float, float], ...],
+        str,
+        list[float],
+        list[bool],
+    ]:
+        minimum = {
+            "similarity": 2,
+            "affine": 3,
+            "homography": 4,
+        }[model]
+
+        if len(source_points) < minimum:
+            raise ValueError(
+                f"{model.title()} alignment requires at least {minimum} pairs"
+            )
+
+        solver = {
+            "similarity": cls._solve_similarity,
+            "affine": cls._solve_affine,
+            "homography": cls._solve_homography,
+        }[model]
+        sample_sets = list(combinations(range(len(source_points)), minimum))
+
+        if len(sample_sets) > 256:
+            rng = np.random.default_rng(0)
+            selected = rng.choice(len(sample_sets), size=256, replace=False)
+            sample_sets = [sample_sets[index] for index in selected]
+
+        best_inliers: list[bool] | None = None
+        best_score: tuple[int, float] | None = None
+
+        for indices in sample_sets:
+            try:
+                matrix = solver(
+                    [source_points[index] for index in indices],
+                    [reference_points[index] for index in indices],
+                )
+            except (ValueError, np.linalg.LinAlgError):
+                continue
+
+            residuals = cls._point_residuals(
+                matrix,
+                source_points,
+                reference_points,
+            )
+            inliers = [value <= threshold for value in residuals]
+            count = sum(inliers)
+
+            if count < minimum:
+                continue
+
+            score = (count, -cls._inlier_rms(residuals, inliers))
+
+            if best_score is None or score > best_score:
+                best_score = score
+                best_inliers = inliers
+
+        if best_inliers is None:
+            raise ValueError(
+                f"Point layout cannot determine a valid {model} transform"
+            )
+
+        matrix = solver(
+            [
+                point
+                for point, inlier in zip(source_points, best_inliers)
+                if inlier
+            ],
+            [
+                point
+                for point, inlier in zip(reference_points, best_inliers)
+                if inlier
+            ],
+        )
+        residuals = cls._point_residuals(
+            matrix,
+            source_points,
+            reference_points,
+        )
+        inliers = [value <= threshold for value in residuals]
+        return matrix, model, residuals, inliers
+
+    @staticmethod
+    def _inlier_rms(residuals: list[float], inliers: list[bool]) -> float:
+        values = [
+            residual
+            for residual, inlier in zip(residuals, inliers)
+            if inlier
+        ]
+
+        if not values:
+            return math.inf
+
+        return math.sqrt(sum(value * value for value in values) / len(values))
+
+    @staticmethod
+    def _point_residuals(
+        matrix: tuple[tuple[float, float, float], ...],
+        source_points: list[tuple[float, float]],
+        reference_points: list[tuple[float, float]],
+    ) -> list[float]:
+        transform = np.asarray(matrix, dtype=np.float64)
+        source = np.column_stack((
+            np.asarray(source_points, dtype=np.float64),
+            np.ones(len(source_points), dtype=np.float64),
+        ))
+        projected = (transform @ source.T).T
+        denominators = projected[:, 2]
+
+        if np.any(np.abs(denominators) <= 1e-12):
+            return [math.inf] * len(source_points)
+
+        projected = projected[:, :2] / denominators[:, None]
+        differences = projected - np.asarray(
+            reference_points,
+            dtype=np.float64,
+        )
+        return [float(value) for value in np.linalg.norm(differences, axis=1)]
+
     @classmethod
     def _solve_similarity(
         cls,
         source_points: list[tuple[float, float]],
         reference_points: list[tuple[float, float]],
     ) -> tuple[tuple[float, float, float], ...]:
-        source_0 = np.asarray(source_points[0], dtype=np.float64)
-        source_1 = np.asarray(source_points[1], dtype=np.float64)
-        reference_0 = np.asarray(reference_points[0], dtype=np.float64)
-        reference_1 = np.asarray(reference_points[1], dtype=np.float64)
-        source_delta = source_1 - source_0
-        reference_delta = reference_1 - reference_0
-        denominator = float(source_delta @ source_delta)
+        rows = []
+        values = []
 
-        if denominator <= 1e-8:
-            raise ValueError("Target points are too close together")
+        for (x, y), (u, v) in zip(source_points, reference_points):
+            rows.extend(((x, -y, 1.0, 0.0), (y, x, 0.0, 1.0)))
+            values.extend((u, v))
 
-        a = float(reference_delta @ source_delta) / denominator
-        b = float(
-            reference_delta[1] * source_delta[0]
-            - reference_delta[0] * source_delta[1]
-        ) / denominator
-        linear = np.asarray(((a, -b), (b, a)), dtype=np.float64)
-        translation = reference_0 - linear @ source_0
+        solution, _, rank, _ = np.linalg.lstsq(
+            np.asarray(rows, dtype=np.float64),
+            np.asarray(values, dtype=np.float64),
+            rcond=None,
+        )
+
+        if rank < 4:
+            raise ValueError(
+                "Point layout cannot determine a similarity transform"
+            )
+
+        a, b, translation_x, translation_y = solution
         matrix = np.asarray((
-            (a, -b, translation[0]),
-            (b, a, translation[1]),
+            (a, -b, translation_x),
+            (b, a, translation_y),
             (0.0, 0.0, 1.0),
         ))
         return cls._validated_matrix(matrix, "similarity")
@@ -618,32 +858,69 @@ class AlignmentService:
         source_points: list[tuple[float, float]],
         reference_points: list[tuple[float, float]],
     ) -> tuple[tuple[float, float, float], ...]:
+        source, source_normalization = cls._normalize_points(source_points)
+        reference, reference_normalization = cls._normalize_points(
+            reference_points
+        )
         rows = []
-        values = []
 
-        for (x, y), (u, v) in zip(source_points, reference_points):
+        for (x, y), (u, v) in zip(source, reference):
             rows.extend((
-                (x, y, 1.0, 0.0, 0.0, 0.0, -u * x, -u * y),
-                (0.0, 0.0, 0.0, x, y, 1.0, -v * x, -v * y),
+                (-x, -y, -1.0, 0.0, 0.0, 0.0, u * x, u * y, u),
+                (0.0, 0.0, 0.0, -x, -y, -1.0, v * x, v * y, v),
             ))
-            values.extend((u, v))
 
         design = np.asarray(rows, dtype=np.float64)
-        solution, _, rank, _ = np.linalg.lstsq(
-            design,
-            np.asarray(values, dtype=np.float64),
-            rcond=None,
-        )
+        _, singular_values, right_vectors = np.linalg.svd(design)
+
+        if len(source_points) == 4:
+            rank = int(np.sum(singular_values > singular_values[0] * 1e-12))
+        else:
+            rank = int(np.linalg.matrix_rank(design))
 
         if rank < 8:
-            raise ValueError("Point layout cannot determine a perspective transform")
+            raise ValueError(
+                "Point layout cannot determine a perspective transform"
+            )
 
-        matrix = np.asarray((
-            (solution[0], solution[1], solution[2]),
-            (solution[3], solution[4], solution[5]),
-            (solution[6], solution[7], 1.0),
-        ))
+        normalized_matrix = right_vectors[-1].reshape(3, 3)
+        matrix = (
+            np.linalg.inv(reference_normalization)
+            @ normalized_matrix
+            @ source_normalization
+        )
+
+        if abs(float(matrix[2, 2])) > 1e-12:
+            matrix /= matrix[2, 2]
+        else:
+            matrix /= np.linalg.norm(matrix)
+
         return cls._validated_matrix(matrix, "homography")
+
+    @staticmethod
+    def _normalize_points(
+        points: list[tuple[float, float]],
+    ) -> tuple[np.ndarray, np.ndarray]:
+        values = np.asarray(points, dtype=np.float64)
+        center = values.mean(axis=0)
+        centered = values - center
+        mean_distance = float(np.linalg.norm(centered, axis=1).mean())
+
+        if mean_distance <= 1e-8:
+            raise ValueError("Point layout is too tightly clustered")
+
+        scale = math.sqrt(2.0) / mean_distance
+        normalization = np.asarray((
+            (scale, 0.0, -scale * center[0]),
+            (0.0, scale, -scale * center[1]),
+            (0.0, 0.0, 1.0),
+        ))
+        homogeneous = np.column_stack((
+            values,
+            np.ones(len(values), dtype=np.float64),
+        ))
+        normalized = (normalization @ homogeneous.T).T
+        return normalized[:, :2], normalization
 
     @staticmethod
     def _validated_matrix(

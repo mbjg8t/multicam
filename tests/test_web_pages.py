@@ -35,6 +35,8 @@ def test_alignment_page_renders_from_template():
     assert b'id="nudge-step"' in response.data
     assert b'id="alignment-model"' in response.data
     assert b'id="clear-points"' in response.data
+    assert b'id="fit-quality"' in response.data
+    assert b"Precision auto" in response.data
 
 
 def test_focus_page_renders_from_template():
@@ -95,3 +97,4 @@ def test_alignment_script_includes_auto_match_workflow():
     assert response.status_code == 200
     assert b"/api/alignment/auto-point" in response.data
     assert b"/api/alignment/point-pairs" in response.data
+    assert b"rms_error_px" in response.data

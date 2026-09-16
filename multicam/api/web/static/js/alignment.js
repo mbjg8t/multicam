@@ -30,8 +30,14 @@ function cameraLabel(camera) {
     return camera.model ? `${camera.name} — ${camera.model}` : camera.name;
 }
 
-function requiredPointCount() {
-    return Number(modelSelect.value);
+function modelSpec() {
+    return {
+        auto: {minimum: 4, maximum: 12, label: 'Precision auto'},
+        translation: {minimum: 1, maximum: 1, label: 'Shift'},
+        similarity: {minimum: 2, maximum: 12, label: 'Rotation + scale'},
+        affine: {minimum: 3, maximum: 12, label: 'Stretch + skew'},
+        homography: {minimum: 4, maximum: 12, label: 'Perspective'}
+    }[modelSelect.value];
 }
 
 function modelName(count = pointPairs.length) {
@@ -62,6 +68,84 @@ function selectedCamera() {
     );
 }
 
+function syncPairMetrics() {
+    const transform = selectedCamera()?.transform;
+
+    pointPairs.forEach((pair, index) => {
+        pair.residual = transform?.residuals_px?.[index] ?? null;
+        pair.inlier = transform?.inlier_mask?.[index] ?? true;
+    });
+}
+
+function renderPairList() {
+    const panel = document.getElementById('fit-panel');
+    const list = document.getElementById('point-pair-list');
+    const quality = document.getElementById('fit-quality');
+    const transform = selectedCamera()?.transform;
+    panel.hidden = pointPairs.length === 0;
+    list.replaceChildren();
+
+    if (pointPairs.length === 0) return;
+
+    if (transform?.rms_error_px !== null && transform?.rms_error_px !== undefined) {
+        const accepted = transform.inlier_mask.filter(Boolean).length;
+        const rejected = transform.inlier_mask.length - accepted;
+        quality.textContent = (
+            `${transform.model}: RMS ${transform.rms_error_px.toFixed(2)} px, ` +
+            `max ${transform.max_error_px.toFixed(2)} px, ` +
+            `${accepted} used, ${rejected} rejected`
+        );
+    } else {
+        quality.textContent = `${pointPairs.length} point pair(s) collected`;
+    }
+
+    pointPairs.forEach((pair, index) => {
+        const item = document.createElement('div');
+        item.className = 'point-pair';
+        item.classList.toggle('outlier', pair.inlier === false);
+        item.classList.toggle('selected', correctionIndex === index);
+
+        const label = document.createElement('span');
+        const error = pair.residual === null
+            ? ''
+            : ` — ${pair.residual.toFixed(1)} px`;
+        label.textContent = (
+            `#${index + 1}${error}` +
+            (pair.inlier === false ? ' rejected' : '')
+        );
+        item.append(label);
+
+        const correct = document.createElement('button');
+        correct.type = 'button';
+        correct.textContent = 'Correct target';
+        correct.addEventListener('click', () => {
+            correctionIndex = index;
+            renderMarkers();
+            renderPairList();
+            showMessage(
+                `Point ${index + 1} selected. Click its correct target location.`
+            );
+        });
+        item.append(correct);
+
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.textContent = 'Remove';
+        remove.addEventListener('click', async () => {
+            pointPairs.splice(index, 1);
+            correctionIndex = null;
+
+            if (pointPairs.length === 0) {
+                await clearMatchPoints();
+            } else {
+                await submitPointPairs();
+            }
+        });
+        item.append(remove);
+        list.append(item);
+    });
+}
+
 function updateControls() {
     populateSelect(
         referenceSelect,
@@ -76,7 +160,10 @@ function updateControls() {
 
     const target = selectedCamera();
     const isPreview = target?.alignment_status === 'preview';
-    document.getElementById('accept').disabled = !isPreview;
+    const minimumReached = pointPairs.length === 0 || (
+        pointPairs.length >= modelSpec().minimum
+    );
+    document.getElementById('accept').disabled = !isPreview || !minimumReached;
     document.getElementById('reject').disabled = !isPreview;
     document.getElementById('undo').disabled = !target?.can_undo;
     document.getElementById('clear-points').disabled = (
@@ -115,6 +202,9 @@ function updateControls() {
     } else {
         summary.textContent = 'No alignment transform for selected target';
     }
+
+    syncPairMetrics();
+    renderPairList();
 }
 
 function imageUrl(cameraId) {
@@ -131,7 +221,9 @@ function loadImage(image, url) {
 }
 
 function clearMarkers(stageId) {
-    document.querySelectorAll(`#${stageId} .marker`).forEach(marker => {
+    document.querySelectorAll(
+        `#${stageId} .marker, #${stageId} .residual-vector`
+    ).forEach(marker => {
         marker.remove();
     });
 }
@@ -142,6 +234,7 @@ function clearPoints() {
     correctionIndex = null;
     clearMarkers('reference-stage');
     clearMarkers('target-stage');
+    document.getElementById('fit-panel').hidden = true;
     updateControls();
 }
 
@@ -240,12 +333,20 @@ function pointFromClick(event, stage, image) {
     };
 }
 
-function addMarker(stage, image, point, number, pending = false) {
+function addMarker(
+    stage,
+    image,
+    point,
+    number,
+    {pending = false, inlier = true, selected = false} = {}
+) {
     if (!image.classList.contains('loaded')) return;
 
     const rendered = displayedImageRect(stage, image);
     const marker = document.createElement('span');
     marker.className = pending ? 'marker pending' : 'marker';
+    marker.classList.toggle('outlier', !inlier);
+    marker.classList.toggle('selected', selected);
     marker.textContent = number;
     marker.style.left = (
         rendered.left + point.x * rendered.width / image.naturalWidth
@@ -257,15 +358,88 @@ function addMarker(stage, image, point, number, pending = false) {
     stage.append(marker);
 }
 
+function projectPoint(matrix, point) {
+    if (!matrix) return null;
+
+    const denominator = (
+        matrix[2][0] * point.x + matrix[2][1] * point.y + matrix[2][2]
+    );
+
+    if (Math.abs(denominator) < 1e-12) return null;
+
+    return {
+        x: (
+            matrix[0][0] * point.x + matrix[0][1] * point.y + matrix[0][2]
+        ) / denominator,
+        y: (
+            matrix[1][0] * point.x + matrix[1][1] * point.y + matrix[1][2]
+        ) / denominator
+    };
+}
+
+function addResidualVector(stage, image, start, end, inlier) {
+    if (!image.classList.contains('loaded')) return;
+
+    const rendered = displayedImageRect(stage, image);
+    const scaleX = rendered.width / image.naturalWidth;
+    const scaleY = rendered.height / image.naturalHeight;
+    const startX = rendered.left + start.x * scaleX;
+    const startY = rendered.top + start.y * scaleY;
+    const endX = rendered.left + end.x * scaleX;
+    const endY = rendered.top + end.y * scaleY;
+    const deltaX = endX - startX;
+    const deltaY = endY - startY;
+    const length = Math.hypot(deltaX, deltaY);
+
+    if (length < 1) return;
+
+    const vector = document.createElement('span');
+    vector.className = 'residual-vector';
+    vector.classList.toggle('outlier', !inlier);
+    vector.style.left = `${startX}px`;
+    vector.style.top = `${startY}px`;
+    vector.style.width = `${length}px`;
+    vector.style.transform = `rotate(${Math.atan2(deltaY, deltaX)}rad)`;
+    stage.append(vector);
+}
+
 function renderMarkers() {
     clearMarkers('reference-stage');
     clearMarkers('target-stage');
     const referenceStage = document.getElementById('reference-stage');
     const targetStage = document.getElementById('target-stage');
+    const transform = selectedCamera()?.transform;
 
     pointPairs.forEach((pair, index) => {
-        addMarker(referenceStage, referenceImage, pair.reference, index + 1);
-        addMarker(targetStage, targetImage, pair.target, index + 1);
+        const options = {
+            inlier: pair.inlier !== false,
+            selected: correctionIndex === index
+        };
+        addMarker(
+            referenceStage,
+            referenceImage,
+            pair.reference,
+            index + 1,
+            options
+        );
+        const projected = projectPoint(transform?.matrix, pair.target);
+
+        if (projected) {
+            addResidualVector(
+                referenceStage,
+                referenceImage,
+                projected,
+                pair.reference,
+                pair.inlier !== false
+            );
+        }
+        addMarker(
+            targetStage,
+            targetImage,
+            pair.target,
+            index + 1,
+            options
+        );
     });
 
     if (pendingReferencePoint) {
@@ -274,7 +448,7 @@ function renderMarkers() {
             referenceImage,
             pendingReferencePoint,
             pointPairs.length + 1,
-            true
+            {pending: true}
         );
     }
 }
@@ -285,31 +459,34 @@ async function submitPointPairs(autoMatch = null) {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
+                model: modelSelect.value,
                 reference_points: pointPairs.map(pair => pair.reference),
                 target_points: pointPairs.map(pair => pair.target)
             })
         });
+        syncPairMetrics();
         updateControls();
         renderMarkers();
         loadImage(previewImage, `/alignment/preview?t=${Date.now()}`);
 
-        const required = requiredPointCount();
+        const spec = modelSpec();
         const count = pointPairs.length;
         const confidence = autoMatch
             ? ` Auto match ${autoMatch.confidence} ` +
                 `(${(autoMatch.score * 100).toFixed(0)}%).`
             : '';
 
-        if (count < required) {
+        if (count < spec.minimum) {
             showMessage(
                 `Point pair ${count} recorded.${confidence} ` +
-                `Choose reference point ${count + 1} far from the prior points.`
+                `Choose at least ${spec.minimum - count} more, well separated.`
             );
         } else {
+            const fittedModel = selectedCamera()?.transform?.model || modelName(count);
             showMessage(
-                `${modelName(count)} draft created from ${count} point pairs.` +
-                `${confidence} Inspect the overlay, then accept, nudge, ` +
-                'correct, or reject it.'
+                `${fittedModel} draft updated from ${count} point pairs.` +
+                `${confidence} Add more points for robustness, or inspect ` +
+                'the residuals and accept.'
             );
         }
     } catch (error) {
@@ -366,9 +543,12 @@ function installPointHandlers() {
     const targetStage = document.getElementById('target-stage');
 
     referenceStage.addEventListener('click', async event => {
-        if (pointPairs.length >= requiredPointCount()) {
+        const spec = modelSpec();
+
+        if (pointPairs.length >= spec.maximum) {
             showMessage(
-                'This model has all required pairs. Accept or clear points to retry.',
+                `This model allows at most ${spec.maximum} pairs. ` +
+                'Remove a pair or accept the alignment.',
                 true
             );
             return;
@@ -460,11 +640,12 @@ document.getElementById('freeze').addEventListener('click', async () => {
         clearPoints();
         refreshFrozenImages();
         const skewMs = alignmentState.timestamp_skew_ns / 1_000_000;
+        const spec = modelSpec();
         showMessage(
             `Frozen ${alignmentState.frozen_frames.length} cameras; ` +
             `maximum timestamp skew ${skewMs.toFixed(1)} ms. ` +
-            `Collect ${requiredPointCount()} point pair(s) for ` +
-            `${modelName(requiredPointCount())}.`
+            `Collect at least ${spec.minimum} well-spaced point pair(s) for ` +
+            `${spec.label}; up to ${spec.maximum} improves robustness.`
         );
     } catch (error) {
         showMessage(error.message, true);

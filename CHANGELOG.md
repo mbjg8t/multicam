@@ -21,8 +21,8 @@
 - Added a separate alignment window with exact click mapping, markers, a 50%
   overlay preview, draft acceptance/rejection, and undo.
 - Kept camera registration separate from ordinary display-layer transforms.
-- Added mode-mismatch protection and generic 3x3 registration matrices for
-  future similarity, affine, and homography alignment.
+- Added mode-mismatch protection and generic 3x3 registration matrices used by
+  similarity, affine, and homography alignment.
 - Added one-click structural matching from a selected reference point to the
   target camera, with high/medium/low confidence reporting.
 - Preserved manual target clicking, draft preview, nudging, rejection, and undo
@@ -33,6 +33,12 @@
   warping in the live compositor.
 - Added validity-mask compositing so pixels outside a rotated or perspective
   target do not darken the reference image.
+- Added Precision auto alignment using 4–12 point pairs and automatic selection
+  of the simplest similarity, affine, or homography model that fits.
+- Added normalized high-resolution homography estimation, robust outlier
+  rejection, per-point residuals, RMS/max error reporting, and residual vectors.
+- Added controls to correct or remove any individual point pair without
+  restarting the alignment.
 
 ### Camera orientation and manual alignment
 
@@ -75,6 +81,6 @@
 
 - Runtime hot-plug reconciliation.
 - Selectable DSP pipelines with raw-data preservation.
-- Automatic multi-point refinement and calibration profiles.
+- Persistent alignment and lens-calibration profiles.
 - MTF service and MTF Workbench integration.
 - Measurement sessions, synchronized capture, recording, and reports.

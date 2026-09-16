@@ -182,10 +182,12 @@ registration matrix maps each target camera's source pixels directly into the
 selected reference camera's pixel space. One point produces translation with
 frame-size normalization, two points produce a similarity transform, three
 points produce the progressive affine draft, and four points produce a planar
-homography. The compositor inverse-warps the source and a validity mask onto
-the reference canvas so uncovered pixels do not affect underlying layers.
-Draft transforms are shared at runtime for live preview but can be rejected
-before acceptance.
+homography. Precision mode accepts up to twelve pairs, uses normalized
+coordinates for high-resolution numerical stability, rejects inconsistent
+matches, and chooses the simplest model whose residual error is acceptable.
+The compositor inverse-warps the source and a validity mask onto the reference
+canvas so uncovered pixels do not affect underlying layers. Draft transforms
+are shared at runtime for live preview but can be rejected before acceptance.
 
 Automatic point matching operates on reduced gradient maps and normalized
 correlation, keeping it portable and less dependent on spectral brightness.

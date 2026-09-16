@@ -213,6 +213,86 @@ def test_multi_point_alignment_rejects_degenerate_layout():
                 (30.0, 30.0),
                 (40.0, 40.0),
             ],
+            requested_model="homography",
+        )
+
+
+def test_auto_model_selects_affine_for_directional_stretch():
+    service, _ = alignment_service_with_large_frames()
+    expected = np.asarray((
+        (1.2, 0.15, 20.0),
+        (-0.05, 0.8, 30.0),
+        (0.0, 0.0, 1.0),
+    ))
+    source_points = [
+        (50.0, 50.0),
+        (800.0, 60.0),
+        (820.0, 850.0),
+        (70.0, 880.0),
+        (500.0, 300.0),
+        (750.0, 650.0),
+    ]
+
+    def project(point):
+        mapped = expected @ np.asarray((point[0], point[1], 1.0))
+        return tuple(mapped[:2])
+
+    transform = service.set_point_pairs(
+        reference_points=[project(point) for point in source_points],
+        target_points=source_points,
+        requested_model="auto",
+    )
+
+    assert transform.model == "affine"
+    assert transform.rms_error_px == pytest.approx(0.0, abs=1e-8)
+    assert transform.inlier_mask == (True,) * len(source_points)
+
+
+def test_robust_homography_rejects_bad_point_pair():
+    service, _ = alignment_service_with_large_frames()
+    expected = np.asarray((
+        (0.95, 0.08, 30.0),
+        (-0.03, 1.05, 15.0),
+        (0.0002, -0.0001, 1.0),
+    ))
+    source_points = [
+        (50.0, 50.0),
+        (1050.0, 50.0),
+        (1050.0, 780.0),
+        (50.0, 780.0),
+        (300.0, 250.0),
+        (800.0, 300.0),
+        (350.0, 650.0),
+        (850.0, 700.0),
+    ]
+
+    def project(point):
+        mapped = expected @ np.asarray((point[0], point[1], 1.0))
+        return tuple(mapped[:2] / mapped[2])
+
+    reference_points = [project(point) for point in source_points]
+    reference_points[5] = (100.0, 950.0)
+    transform = service.set_point_pairs(
+        reference_points=reference_points,
+        target_points=source_points,
+        requested_model="homography",
+    )
+
+    assert transform.model == "homography"
+    assert transform.inlier_mask[5] is False
+    assert sum(transform.inlier_mask) == 7
+    assert transform.rms_error_px == pytest.approx(0.0, abs=1e-7)
+    assert transform.residuals_px[5] > 100.0
+
+
+def test_multi_point_alignment_limits_collection_to_twelve_pairs():
+    service, _ = alignment_service_with_large_frames()
+    points = [(float(index * 10), 50.0) for index in range(13)]
+
+    with pytest.raises(ValueError, match="twelve"):
+        service.set_point_pairs(
+            reference_points=points,
+            target_points=points,
         )
 
 
@@ -233,6 +313,8 @@ def test_nudge_left_multiplies_perspective_transform():
         (-0.03, 0.94, 17.0),
         (0.01, 0.02, 1.0),
     )
+    assert nudged.rms_error_px is None
+    assert nudged.residuals_px == ()
 
 
 def test_auto_alignment_finds_cross_spectral_structural_shift():

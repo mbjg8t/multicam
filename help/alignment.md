@@ -19,14 +19,21 @@ runtime alignment because the old pixel coordinates are no longer valid.
 
 ## Alignment models
 
-Choose the least complex model that corrects the visible error:
+**Precision auto — 4–12 point pairs** is the recommended mode for a flat test
+chart. It robustly fits similarity, affine, and homography candidates, rejects
+isolated bad pairs, and selects the simplest model that meets the residual
+error threshold.
+
+Manual model choices remain available:
 
 - **Shift — 1 point pair:** corrects X/Y position and normalizes different
   frame sizes.
-- **Rotate + scale — 2 point pairs:** adds arbitrary in-plane rotation and
-  uniform scale. This is the normal choice after cameras have moved slightly.
-- **Perspective — 4 point pairs:** also corrects planar keystone and affine
-  differences. While collecting four pairs, the preview progresses through
+- **Rotate + scale — 2–12 pairs:** adds arbitrary in-plane rotation and uniform
+  scale.
+- **Stretch + skew — 3–12 pairs:** adds independent directional stretch and
+  shear without perspective.
+- **Perspective — 4–12 pairs:** also corrects planar keystone differences.
+  While collecting its first four pairs, the preview progresses through
   translation, similarity, affine, and finally homography.
 
 Use well-defined features that are visible in both spectral bands. Spread the
@@ -38,22 +45,25 @@ four corners of the useful subject plane; do not place them on one line.
 1. Confirm that both cameras have green status dots on the main page.
 2. Select the fixed camera under **Align to** and the camera that should move
    under **Transform**.
-3. Open **Alignment**, choose a model, and select **Freeze all running
-   cameras**.
+3. Open **Alignment**, leave **Precision auto** selected, and choose **Freeze
+   all running cameras**.
 4. Review the displayed timestamp skew. Keep the scene still when cameras are
    not hardware-synchronized.
 5. Leave **Auto-find target** enabled and click the first distinctive physical
    feature in the frozen reference image.
 6. Verify that numbered marker 1 identifies the same physical feature in the
    target. If it is wrong, click the correct target location manually.
-7. For Rotate + Scale or Perspective, continue with well-separated reference
-   features. Verify each numbered target marker before choosing the next.
-8. Inspect the 50% overlay. Use the target image to correct the most recent
-   match, or **Clear points** and repeat if an older pair is wrong.
-9. Use the arrow buttons to nudge the complete transform by 1, 5, or 20
+7. Collect at least four widely separated pairs. Six to twelve pairs provide a
+   stronger fit and permit robust rejection of an incorrect match.
+8. Inspect the model, RMS/max error, and per-pair residuals above the images.
+   A red pair was rejected. Use **Correct target** for any numbered pair and
+   click its correct target location, or remove it without restarting.
+9. Residual lines on the reference show the remaining displacement between the
+   transformed target point and its requested reference point.
+10. Use the arrow buttons to nudge the complete transform by 1, 5, or 20
    reference-canvas pixels if needed.
-10. Choose **Accept**, **Reject**, or **Undo accepted**.
-11. Select another target and repeat. The reference remains fixed.
+11. Choose **Accept**, **Reject**, or **Undo accepted**.
+12. Select another target and repeat. The reference remains fixed.
 
 The automatic matcher downsamples the display frames, converts them to gradient
 structure, and searches the complete target frame using normalized
@@ -85,5 +95,5 @@ point pairing.
   initial rotations may defeat automatic patch matching. Place the matching
   target points manually in those cases; the multi-point transform still
   solves normally.
-- Alignment-profile persistence, lens-distortion calibration, and robust
-  multi-feature refinement remain planned work.
+- Alignment-profile persistence and lens-distortion calibration remain planned
+  work.

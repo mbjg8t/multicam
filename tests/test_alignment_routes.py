@@ -114,6 +114,7 @@ def test_guided_alignment_api_workflow(tmp_path):
     assert target["transform"]["y"] == 10.0
 
     response = client.post("/api/alignment/point-pairs", json={
+        "model": "similarity",
         "reference_points": [
             {"x": 20, "y": 10},
             {"x": 20, "y": 35},
@@ -131,6 +132,8 @@ def test_guided_alignment_api_workflow(tmp_path):
     )
     assert target["transform"]["model"] == "similarity"
     assert target["transform"]["rotation_deg"] == pytest.approx(90.0)
+    assert target["transform"]["rms_error_px"] == pytest.approx(0.0)
+    assert target["transform"]["inlier_mask"] == [True, True]
     before_nudge_x = target["transform"]["x"]
     before_nudge_y = target["transform"]["y"]
 

@@ -77,6 +77,50 @@ button:disabled {
     color: #ef9a9a;
 }
 
+.fit-panel {
+    padding: 8px 14px;
+    background: #171717;
+    border-bottom: 1px solid #333;
+}
+
+#fit-quality {
+    margin-bottom: 7px;
+    color: #ddd;
+    font-size: 13px;
+}
+
+.point-pair-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.point-pair {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 6px;
+    border: 1px solid #555;
+    border-radius: 4px;
+    background: #292929;
+    font-size: 12px;
+}
+
+.point-pair.outlier {
+    border-color: #e57373;
+    color: #ffcdd2;
+}
+
+.point-pair.selected {
+    border-color: #4fc3f7;
+    box-shadow: 0 0 0 1px #4fc3f7 inset;
+}
+
+.point-pair button {
+    padding: 2px 6px;
+    font-size: 11px;
+}
+
 main {
     padding: 12px;
     display: grid;
@@ -158,6 +202,31 @@ main {
 .marker.pending {
     border-style: dashed;
     background: rgba(255, 235, 59, 0.35);
+}
+
+.marker.outlier {
+    border-color: #ef5350;
+    background: rgba(239, 83, 80, 0.82);
+    color: white;
+}
+
+.marker.selected {
+    border-color: #4fc3f7;
+    box-shadow: 0 0 0 2px #111, 0 0 0 4px #4fc3f7;
+}
+
+.residual-vector {
+    position: absolute;
+    height: 2px;
+    background: #4fc3f7;
+    transform-origin: 0 50%;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.residual-vector.outlier {
+    height: 3px;
+    background: #ef5350;
 }
 
 footer {

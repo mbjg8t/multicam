@@ -23,6 +23,10 @@ class RegistrationTransform:
     reference_size: tuple[int, int] | None = None
     source_points: tuple[tuple[float, float], ...] = ()
     reference_points: tuple[tuple[float, float], ...] = ()
+    residuals_px: tuple[float, ...] = ()
+    inlier_mask: tuple[bool, ...] = ()
+    rms_error_px: float | None = None
+    max_error_px: float | None = None
     created_at: float = field(default_factory=time.time)
 
     @property
@@ -84,6 +88,10 @@ class RegistrationTransform:
             reference_size=reference_size,
             source_points=(source_point,),
             reference_points=(reference_point,),
+            residuals_px=(0.0,),
+            inlier_mask=(True,),
+            rms_error_px=0.0,
+            max_error_px=0.0,
         )
 
     @classmethod
@@ -134,6 +142,10 @@ class RegistrationTransform:
                 ),
                 row_2,
             ),
+            residuals_px=(),
+            inlier_mask=(),
+            rms_error_px=None,
+            max_error_px=None,
             created_at=time.time(),
         )
 

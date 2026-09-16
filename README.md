@@ -13,8 +13,8 @@ Implemented:
 - central concurrent acquisition through `CameraManager` and `FrameBroker`
 - generic 0..N camera layers and live compositing
 - live camera-status strip with selectable alignment reference and target
-- progressive structural alignment: shift, arbitrary rotation/scale, and
-  four-point perspective, with confidence, preview, and undo
+- robust multi-point alignment with automatic similarity/affine/perspective
+  selection, outlier rejection, residual reporting, preview, and undo
 - persistent per-camera display orientation (rotate/flip), applied before alignment
 - manual target nudges with 1, 5, or 20 pixel steps in the Alignment window
 - safe, backend-reported live-preview resolution selection for Pi cameras
@@ -28,7 +28,7 @@ Planned but not yet integrated:
 
 - FLIR Boson backend
 - runtime hot-plug reconciliation
-- automatic multi-point refinement and calibration profiles
+- persistent alignment and lens-calibration profiles
 - selectable DSP pipelines
 - MTF Workbench and analysis service
 - measurement sessions, synchronized capture, recording, and reports
@@ -69,12 +69,13 @@ Open `http://<pi-address>:5000` from another computer on the same network.
 
 The main page shows every discovered camera and whether it is streaming with
 frames. Choose **Align to** (the fixed reference) and **Transform** (the camera
-that will move), then open **Alignment**. Freeze the running cameras, choose a
-one-, two-, or four-point model, and click distinctive features in the
-reference image. Multicam searches the selected target using edge structure,
-reports match confidence, and progressively creates translation,
-rotation/scale, affine, and perspective drafts. Accept the final overlay,
-nudge it, or click a target feature manually to correct the newest match. See
+that will move), then open **Alignment**. Freeze the running cameras and use
+**Precision auto** to collect 4–12 widely separated features in the reference
+image. Multicam searches the target using edge structure and chooses the
+simplest similarity, affine, or perspective model that meets the measured fit.
+It reports per-pair residuals, rejects isolated bad matches, and creates a 50%
+overlay draft. Correct or remove any numbered pair, add points, nudge the final
+transform, and accept it after inspection. See
 [`help/alignment.md`](help/alignment.md) for the complete workflow and current
 limitations.
 
