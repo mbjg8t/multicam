@@ -60,8 +60,9 @@ four corners of the useful subject plane; do not place them on one line.
 8. Inspect the model, RMS/max error, and per-pair residuals above the images.
    A red pair was rejected. Use **Correct target** for any numbered pair and
    click its correct target location, or remove it without restarting.
-9. Use **Selection zoom** (2×, 4×, or 8×) for precise placement. Drag either
-   frozen image to pan it and use **Reset zoom/pan** to return to the full view.
+9. Scroll the mouse wheel over either frozen image for smooth cursor-centered
+   zoom up to 12×, or use the 2×/4×/8× presets. Drag each image independently
+   to pan it and use **Reset zoom/pan** to return to the full view.
 10. Residual lines on the reference show the remaining displacement between the
    transformed target point and its requested reference point.
 11. Use the arrow buttons to nudge the complete transform by 1, 5, or 20
@@ -74,7 +75,9 @@ structure, and initially searches the target using normalized correlation.
 This is more useful across visible, NIR, SWIR, and thermal imagery than matching
 raw brightness. Ambiguous automatic matches are not added; click
 the corresponding target location manually. After a valid initial fit, the
-search is restricted around the position predicted by the current transform.
+search uses both a restricted region and a spatial preference for the strong
+match nearest the position predicted by the current transform. A low-uniqueness
+but structurally adequate match in that guided region is labeled **guided**.
 The operator must still inspect and accept the draft. Disable **Auto-find
 target** for fully manual point pairing.
 

@@ -45,6 +45,9 @@
   an apparently valid draft with zero RMS error.
 - Added 1×/2×/4×/8× frozen-frame selection zoom with independent drag panning
   while preserving native image-coordinate clicks and residual markers.
+- Added smooth cursor-centered mouse-wheel zoom up to 12×.
+- Added a spatial prior for repeated-pattern matching so later matches favor
+  strong structure nearest the location predicted by the current transform.
 
 ### Camera orientation and manual alignment
 

@@ -43,6 +43,7 @@
                 <option value="2">2×</option>
                 <option value="4">4×</option>
                 <option value="8">8×</option>
+                <option value="custom" disabled>Wheel/custom</option>
             </select>
         </label>
         <button id="reset-zoom" type="button">Reset zoom/pan</button>
@@ -59,7 +60,7 @@
 
     <main>
         <section class="frame-panel">
-            <h3>Reference — select features; drag to pan when zoomed</h3>
+            <h3>Reference — mouse wheel to zoom; drag to pan</h3>
             <div id="reference-stage" class="image-stage">
                 <img id="reference-image" alt="Frozen reference frame" draggable="false">
                 <span class="empty-label">Freeze frames to begin</span>
@@ -67,7 +68,7 @@
         </section>
 
         <section class="frame-panel">
-            <h3>Target — automatic match or manual correction; drag to pan</h3>
+            <h3>Target — mouse wheel to zoom; drag to pan</h3>
             <div id="target-stage" class="image-stage">
                 <img id="target-image" alt="Frozen target frame" draggable="false">
                 <span class="empty-label">Freeze frames to begin</span>

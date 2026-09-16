@@ -260,6 +260,50 @@ function setSelectionZoom(zoom) {
     renderMarkers();
 }
 
+function updateZoomReadout() {
+    const values = Object.values(viewportStates).map(item => item.zoom);
+    const preset = [1, 2, 4, 8].find(value => (
+        values.every(zoom => Math.abs(zoom - value) < 0.001)
+    ));
+    document.getElementById('selection-zoom').value = (
+        preset === undefined ? 'custom' : String(preset)
+    );
+}
+
+function zoomViewportAt(stage, image, zoom, clientX, clientY) {
+    const viewport = viewportState(stage);
+    const oldZoom = viewport.zoom;
+    const nextZoom = Math.max(1, Math.min(12, zoom));
+    const rect = stage.getBoundingClientRect();
+    const localX = clientX - rect.left;
+    const localY = clientY - rect.top;
+    const centerX = rect.width / 2;
+    const centerY = rect.height / 2;
+    const baseX = centerX + (
+        localX - centerX - viewport.panX
+    ) / oldZoom;
+    const baseY = centerY + (
+        localY - centerY - viewport.panY
+    ) / oldZoom;
+
+    viewport.zoom = nextZoom;
+    viewport.panX = (
+        localX - centerX - (baseX - centerX) * nextZoom
+    );
+    viewport.panY = (
+        localY - centerY - (baseY - centerY) * nextZoom
+    );
+
+    if (nextZoom === 1) {
+        viewport.panX = 0;
+        viewport.panY = 0;
+    }
+
+    applyViewportTransform(stage, image);
+    updateZoomReadout();
+    renderMarkers();
+}
+
 function clearMarkers(stageId) {
     document.querySelectorAll(
         `#${stageId} .marker, #${stageId} .residual-vector`
@@ -692,6 +736,19 @@ function installPanHandler(stage, image) {
 
     stage.addEventListener('pointerup', finishPan);
     stage.addEventListener('pointercancel', finishPan);
+    stage.addEventListener('wheel', event => {
+        if (!image.classList.contains('loaded')) return;
+
+        event.preventDefault();
+        const factor = Math.exp(-event.deltaY * 0.0015);
+        zoomViewportAt(
+            stage,
+            image,
+            viewportState(stage).zoom * factor,
+            event.clientX,
+            event.clientY
+        );
+    }, {passive: false});
 }
 
 async function clearMatchPoints() {

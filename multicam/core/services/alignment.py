@@ -341,9 +341,21 @@ class AlignmentService:
                 search_offset_x = 0
                 search_offset_y = 0
 
+        match_options = {}
+
+        if predicted_target is not None:
+            match_options = {
+                "expected_center": (
+                    predicted_work[0] - search_offset_x,
+                    predicted_work[1] - search_offset_y,
+                ),
+                "spatial_sigma": max(1.0, search_radius * 0.60),
+            }
+
         match_x, match_y, score, uniqueness = self._normalized_match(
             target_search,
             template,
+            **match_options,
         )
         match_x += search_offset_x
         match_y += search_offset_y
@@ -359,7 +371,22 @@ class AlignmentService:
         confidence = self._confidence_label(score, uniqueness)
 
         if confidence == "low":
-            raise ValueError("Automatic match is ambiguous")
+            guided_distance = math.inf
+
+            if predicted_target is not None:
+                guided_distance = math.hypot(
+                    matched_work_point[0] - predicted_work[0],
+                    matched_work_point[1] - predicted_work[1],
+                )
+
+            if (
+                predicted_target is None
+                or score < 0.25
+                or guided_distance > search_radius * 0.85
+            ):
+                raise ValueError("Automatic match is ambiguous")
+
+            confidence = "guided"
 
         transform = self.set_point_pair(
             reference_point=reference_point,
@@ -601,6 +628,9 @@ class AlignmentService:
         cls,
         image: np.ndarray,
         template: np.ndarray,
+        *,
+        expected_center: tuple[float, float] | None = None,
+        spatial_sigma: float | None = None,
     ) -> tuple[int, int, float, float]:
         template = template.astype(np.float32)
         template = template - float(template.mean())
@@ -649,7 +679,23 @@ class AlignmentService:
             out=scores,
             where=denominator > 1e-6,
         )
-        flat_index = int(np.argmax(scores))
+        selection_scores = scores
+
+        if expected_center is not None and spatial_sigma is not None:
+            expected_x = expected_center[0] - patch_width / 2
+            expected_y = expected_center[1] - patch_height / 2
+            rows, columns = np.indices(scores.shape, dtype=np.float32)
+            distance_squared = (
+                (columns - expected_x) ** 2
+                + (rows - expected_y) ** 2
+            )
+            penalty = np.minimum(
+                0.35,
+                0.20 * distance_squared / (spatial_sigma * spatial_sigma),
+            )
+            selection_scores = scores - penalty
+
+        flat_index = int(np.argmax(selection_scores))
         match_y, match_x = np.unravel_index(flat_index, scores.shape)
         score = float(np.clip(scores[match_y, match_x], -1.0, 1.0))
         alternatives = scores.copy()

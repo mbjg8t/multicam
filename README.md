@@ -74,9 +74,9 @@ that will move), then open **Alignment**. Freeze the running cameras and use
 image. Multicam searches the target using edge structure and chooses the
 simplest similarity, affine, or perspective model that meets the measured fit.
 It reports per-pair residuals, rejects isolated bad matches, and creates a 50%
-overlay draft. Zoom frozen images up to 8× and pan for native-pixel point
-placement. Correct or remove any numbered pair, add points, nudge the final
-transform, and accept it after inspection. See
+overlay draft. Use cursor-centered mouse-wheel zoom up to 12× or zoom presets,
+then pan for native-pixel point placement. Correct or remove any numbered pair,
+add points, nudge the final transform, and accept it after inspection. See
 [`help/alignment.md`](help/alignment.md) for the complete workflow and current
 limitations.
 

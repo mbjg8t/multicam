@@ -356,7 +356,7 @@ def test_auto_alignment_rejects_ambiguous_match(monkeypatch):
     service = AlignmentService(StubBroker(frames), state)
     service.freeze(["reference", "target"])
 
-    def ambiguous_match(cls, image, template):
+    def ambiguous_match(cls, image, template, **kwargs):
         return 20, 20, 0.50, 0.01
 
     monkeypatch.setattr(
@@ -391,9 +391,12 @@ def test_auto_alignment_limits_search_around_existing_prediction(monkeypatch):
     service.freeze(["reference", "target"])
     searched_shapes = []
 
-    def confident_match(cls, search_image, template):
+    match_options = []
+
+    def confident_match(cls, search_image, template, **kwargs):
         searched_shapes.append(search_image.shape)
-        return 100, 100, 0.80, 0.10
+        match_options.append(kwargs)
+        return 100, 100, 0.50, 0.01
 
     monkeypatch.setattr(
         AlignmentService,
@@ -401,11 +404,32 @@ def test_auto_alignment_limits_search_around_existing_prediction(monkeypatch):
         classmethod(confident_match),
     )
 
-    service.auto_align(reference_point=(300.0, 300.0))
+    result = service.auto_align(reference_point=(300.0, 300.0))
 
     assert searched_shapes
     assert searched_shapes[0][0] < 512
     assert searched_shapes[0][1] < 512
+    assert match_options[0]["expected_center"]
+    assert result.confidence == "guided"
+
+
+def test_spatial_prior_selects_nearest_repeated_feature():
+    rng = np.random.default_rng(8)
+    template = rng.random((15, 15), dtype=np.float32)
+    image = np.zeros((100, 100), dtype=np.float32)
+    image[40:55, 10:25] = template
+    image[40:55, 70:85] = template
+
+    match_x, match_y, score, _ = AlignmentService._normalized_match(
+        image,
+        template,
+        expected_center=(77.5, 47.5),
+        spatial_sigma=25.0,
+    )
+
+    assert match_x == 70
+    assert match_y == 40
+    assert score == pytest.approx(1.0, abs=1e-5)
 
 
 def test_nudge_left_multiplies_perspective_transform():

@@ -101,3 +101,4 @@ def test_alignment_script_includes_auto_match_workflow():
     assert b"/api/alignment/point-pairs" in response.data
     assert b"rms_error_px" in response.data
     assert b"installPanHandler" in response.data
+    assert b"zoomViewportAt" in response.data
