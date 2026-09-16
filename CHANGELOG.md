@@ -12,6 +12,18 @@
 - Camera profile save and load.
 - Raspberry Pi CSI provisioning inspection and guarded configuration proposals.
 
+### Selectable display DSP
+
+- Added a per-camera DSP Workbench with raw/processed previews.
+- Added portable levels, gamma, denoise, sharpen, grayscale, invert, and iron
+  palette processors.
+- Run DSP in rate-limited background latest-frame workers so slow processing
+  skips frames instead of accumulating latency.
+- Keep raw broker frames immutable for Focus, Alignment, capture, and MTF while
+  the main live compositor can consume a processed display variant.
+- Preserve source timestamps/frame numbers and attach pipeline provenance to
+  processed frames.
+
 ### Guided camera alignment
 
 - Added a compact main-window camera strip with stream and alignment status.

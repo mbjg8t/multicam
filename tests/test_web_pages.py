@@ -12,6 +12,7 @@ def test_main_page_renders_from_template():
     assert b'id="camera-strip"' in response.data
     assert b'Align to' in response.data
     assert b'id="open-focus"' in response.data
+    assert b'id="open-dsp"' in response.data
 
 
 def test_cameras_page_renders_from_template():
@@ -55,6 +56,19 @@ def test_focus_page_renders_from_template():
     assert b'id="roi-preview"' in response.data
 
 
+def test_dsp_page_renders_from_template():
+    client = app.test_client()
+
+    response = client.get("/dsp")
+
+    assert response.status_code == 200
+    assert b"DSP Workbench" in response.data
+    assert b'id="raw-preview"' in response.data
+    assert b'id="processed-preview"' in response.data
+    assert b'id="black-percentile"' in response.data
+    assert b'id="max-fps"' in response.data
+
+
 def test_alignment_status_api_is_available_without_cameras():
     client = app.test_client()
 
@@ -79,10 +93,21 @@ def test_web_static_assets_are_available():
         "/static/js/index.js",
         "/static/css/focus.css",
         "/static/js/focus.js",
+        "/static/css/dsp.css",
+        "/static/js/dsp.js",
     ):
         response = client.get(path)
         assert response.status_code == 200
         assert response.data
+
+
+def test_dsp_api_is_available_without_cameras():
+    client = app.test_client()
+
+    response = client.get("/api/dsp")
+
+    assert response.status_code == 200
+    assert response.get_json()["cameras"] == []
 
 
 def test_camera_settings_script_includes_preview_resolution_control():

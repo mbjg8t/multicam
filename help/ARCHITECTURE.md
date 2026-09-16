@@ -149,6 +149,8 @@ Implemented foundation:
   stream restart
 - independent focus analysis using shared broker frames and backend-reported
   lens controls
+- background per-camera display DSP with immutable raw broker frames and named
+  processed variants
 
 Planned:
 
@@ -222,6 +224,15 @@ The current broker retains the latest frame for live viewing. Its public
 boundary will evolve to support bounded preview subscribers and controlled,
 complete measurement capture without allowing tools to access hardware
 directly.
+
+Display DSP is a non-owning consumer of broker frames. Each enabled per-camera
+pipeline runs in a bounded latest-frame worker, publishes an RGB8 processed
+variant with provenance metadata, and drops intermediate frames rather than
+building latency. `LiveViewService` may select that processed variant, while
+Focus, Alignment, capture, and measurement services continue to read the raw
+broker frame. Current processors preserve geometry; future geometry-changing
+processors must change a geometry signature and invalidate registrations made
+in a different coordinate system.
 
 ## Persistent and Runtime Data
 

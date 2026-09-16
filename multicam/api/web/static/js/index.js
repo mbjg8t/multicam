@@ -159,5 +159,9 @@ document.getElementById('open-focus').addEventListener('click', () => {
     window.open('/focus', 'multicam-focus');
 });
 
+document.getElementById('open-dsp').addEventListener('click', () => {
+    window.open('/dsp', 'multicam-dsp');
+});
+
 refreshAlignment();
 setInterval(refreshAlignment, 1500);

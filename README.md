@@ -20,6 +20,8 @@ Implemented:
 - safe, backend-reported live-preview resolution selection for Pi cameras
 - independent live Focus utility with selectable ROI, sharpness trend, peak
   tracking, edge view, and capability-driven autofocus controls
+- selectable per-camera display DSP with raw/processed comparison, levels,
+  gamma, denoise, sharpen, grayscale, inversion, and palettes
 - capability-driven camera settings and saved camera profiles
 - Raspberry Pi CSI provisioning inspection
 - Flask web interface
@@ -29,7 +31,7 @@ Planned but not yet integrated:
 - FLIR Boson backend
 - runtime hot-plug reconciliation
 - persistent alignment and lens-calibration profiles
-- selectable DSP pipelines
+- persistent/reorderable DSP profiles and accelerated processor providers
 - MTF Workbench and analysis service
 - measurement sessions, synchronized capture, recording, and reports
 
@@ -97,6 +99,12 @@ interrupting the composite view. Click the live image to position the ROI and
 maximize the relative Tenengrad score while adjusting focus. Electronic AF and
 lens-position controls appear only when reported by the selected backend. See
 [`help/focus.md`](help/focus.md) for operating guidance and limitations.
+
+Open **DSP** to compare a raw broker frame with a portable processed display
+variant and optionally route that variant into the live layer compositor. DSP
+runs in a rate-limited background latest-frame worker; raw frames remain
+unchanged for Focus, Alignment, capture, and future MTF. See
+[`help/dsp.md`](help/dsp.md).
 
 The existing launcher remains available:
 

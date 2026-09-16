@@ -4,6 +4,7 @@ import logging
 import io
 import os
 import time
+import atexit
 from pathlib import Path
 
 from flask import Flask, Response, jsonify, render_template, request
@@ -17,7 +18,9 @@ from multicam.core.services import (
     CameraProfileStore,
     FocusService,
     LiveViewService,
+    DspService,
 )
+from multicam.core.imaging import DspPipelineStore
 from multicam.core.state import (
     AlignmentStateStore,
     CameraOrientation,
@@ -29,6 +32,7 @@ from multicam.platforms.raspberry_pi import RaspberryPiCameraProvisioner
 from .backend_loader import register_available_backends
 from .alignment_routes import create_alignment_blueprint
 from .focus_routes import create_focus_blueprint
+from .dsp_routes import create_dsp_blueprint
 
 
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
@@ -45,6 +49,11 @@ broker = FrameBroker()
 state = ViewStateStore()
 alignment_state = AlignmentStateStore()
 orientation_store = CameraOrientationStore()
+dsp_store = DspPipelineStore()
+dsp_service = DspService(
+    broker=broker,
+    store=dsp_store,
+)
 alignment_service = AlignmentService(
     broker=broker,
     state=alignment_state,
@@ -57,6 +66,7 @@ service = LiveViewService(
     state=state,
     alignment_state=alignment_state,
     orientation_store=orientation_store,
+    dsp_service=dsp_service,
 )
 focus_service = FocusService(
     broker=broker,
@@ -100,6 +110,14 @@ app.register_blueprint(create_focus_blueprint(
     broker=broker,
     focus_service=focus_service,
 ))
+app.register_blueprint(create_dsp_blueprint(
+    manager=manager,
+    broker=broker,
+    dsp_service=dsp_service,
+    dsp_store=dsp_store,
+    compositor=service.compositor,
+))
+atexit.register(dsp_service.stop_all)
 
 
 def _read_camera_profiles():

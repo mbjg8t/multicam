@@ -13,12 +13,14 @@ class LiveViewService:
         state: ViewStateStore,
         alignment_state: AlignmentStateStore | None = None,
         orientation_store=None,
+        dsp_service=None,
     ):
         self.manager = manager
         self.broker = broker
         self.state = state
         self.alignment_state = alignment_state
         self.orientation_store = orientation_store
+        self.dsp_service = dsp_service
         self.compositor = Compositor()
 
     def get_composite(self):
@@ -38,8 +40,10 @@ class LiveViewService:
         # may use the first available layer to preserve output canvas geometry
         # while that layer is hidden.
         for layer in view_state.layers:
-            frame = self.broker.get_latest(
-                layer.camera_id
+            frame = (
+                self.dsp_service.get_frame(layer.camera_id)
+                if self.dsp_service is not None
+                else self.broker.get_latest(layer.camera_id)
             )
 
             if frame is not None:
