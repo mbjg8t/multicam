@@ -104,3 +104,6 @@ def test_alignment_script_includes_auto_match_workflow():
     assert b"rms_error_px" in response.data
     assert b"installPanHandler" in response.data
     assert b"zoomViewportAt" in response.data
+    assert b"modelSelect.addEventListener('change', refitSelectedModel)" in response.data
+    assert b"modelSelect.addEventListener('change', clearMatchPoints)" not in response.data
+    assert b"model outlier" in response.data

@@ -88,6 +88,10 @@ If manually selected pairs are consistent under a more flexible transform than
 the selected model, the page reports a model mismatch rather than labeling the
 points as bad. For example, correct points from a keystoned chart may require
 **Perspective / homography** even though **Rotate + scale** cannot fit them.
+Changing the Alignment model preserves all completed points, their order, and
+manual corrections, then immediately refits them with the new model. A **model
+outlier** means the selected transform cannot explain that pair within the
+residual tolerance; it does not mean the manual click became ambiguous.
 
 ## Status meanings
 

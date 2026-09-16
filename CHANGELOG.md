@@ -51,6 +51,8 @@
 - Require two manual anchor pairs before automatic matching is available.
 - Report underpowered transform models separately from incorrect point pairs,
   and suppress stale residuals after a failed fit.
+- Preserve point pairs, corrections, and zoom while switching alignment models;
+  refit the same points immediately and label fit exclusions as model outliers.
 
 ### Camera orientation and manual alignment
 

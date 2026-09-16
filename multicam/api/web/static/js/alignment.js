@@ -107,11 +107,11 @@ function renderPairList() {
         transform?.rms_error_px !== undefined
     ) {
         const accepted = transform.inlier_mask.filter(Boolean).length;
-        const rejected = transform.inlier_mask.length - accepted;
+        const outliers = transform.inlier_mask.length - accepted;
         quality.textContent = (
             `${transform.model}: RMS ${transform.rms_error_px.toFixed(2)} px, ` +
             `max ${transform.max_error_px.toFixed(2)} px, ` +
-            `${accepted} used, ${rejected} rejected`
+            `${accepted} used, ${outliers} model outlier(s)`
         );
     } else {
         quality.textContent = `${pointPairs.length} point pair(s) collected`;
@@ -129,7 +129,7 @@ function renderPairList() {
             : ` — ${pair.residual.toFixed(1)} px`;
         label.textContent = (
             `#${index + 1}${error}` +
-            (pair.inlier === false ? ' rejected' : '')
+            (pair.inlier === false ? ' model outlier' : '')
         );
         item.append(label);
 
@@ -178,11 +178,12 @@ function updateControls() {
 
     const target = selectedCamera();
     const isPreview = target?.alignment_status === 'preview';
-    const minimumReached = pointPairs.length === 0 || (
-        pointPairs.length >= modelSpec().minimum
+    const pointCountSupported = pointPairs.length === 0 || (
+        pointPairs.length >= modelSpec().minimum &&
+        pointPairs.length <= modelSpec().maximum
     );
     document.getElementById('accept').disabled = (
-        !isPreview || !minimumReached || !fitIsCurrent ||
+        !isPreview || !pointCountSupported || !fitIsCurrent ||
         pendingReferencePoint !== null
     );
     document.getElementById('reject').disabled = !isPreview;
@@ -519,7 +520,7 @@ function renderMarkers() {
     clearMarkers('target-stage');
     const referenceStage = document.getElementById('reference-stage');
     const targetStage = document.getElementById('target-stage');
-    const transform = selectedCamera()?.transform;
+    const transform = fitIsCurrent ? selectedCamera()?.transform : null;
 
     pointPairs.forEach((pair, index) => {
         const options = {
@@ -607,10 +608,44 @@ async function submitPointPairs(autoMatch = null) {
         }
     } catch (error) {
         fitIsCurrent = false;
+        previewImage.removeAttribute('src');
+        previewImage.classList.remove('loaded');
         updateControls();
         renderMarkers();
         showMessage(error.message, true);
     }
+}
+
+async function refitSelectedModel() {
+    const spec = modelSpec();
+    const count = pointPairs.length;
+
+    if (count === 0) {
+        fitIsCurrent = false;
+        updateControls();
+        showMessage(
+            `${spec.label} selected. Existing point pairs will be retained ` +
+            'when models are changed.'
+        );
+        return;
+    }
+
+    if (count > spec.maximum) {
+        fitIsCurrent = false;
+        previewImage.removeAttribute('src');
+        previewImage.classList.remove('loaded');
+        updateControls();
+        renderMarkers();
+        showMessage(
+            `${spec.label} supports at most ${spec.maximum} point pair(s); ` +
+            `all ${count} points were retained. Remove extra points or ` +
+            'select another model.',
+            true
+        );
+        return;
+    }
+
+    await submitPointPairs();
 }
 
 async function autoMatchPendingPoint() {
@@ -825,7 +860,7 @@ async function nudgeTarget(xDirection, yDirection) {
 
 referenceSelect.addEventListener('change', setSelection);
 targetSelect.addEventListener('change', setSelection);
-modelSelect.addEventListener('change', clearMatchPoints);
+modelSelect.addEventListener('change', refitSelectedModel);
 document.getElementById('clear-points').addEventListener('click', clearMatchPoints);
 document.getElementById('selection-zoom').addEventListener('change', event => {
     setSelectionZoom(Number(event.target.value));
