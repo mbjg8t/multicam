@@ -98,6 +98,30 @@ class ProvisioningChange:
     parameters: dict[str, str | bool] = field(default_factory=dict)
 
     reboot_required: bool = False
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class CameraPortOption:
+    """Portable description of a platform camera connector or slot."""
+
+    id: str
+    name: str
+    description: str
+    selected_sensor_id: str | None = None
+    runtime_model: str | None = None
+    runtime_path: str | None = None
+
+
+@dataclass(slots=True)
+class CameraSensorOption:
+    """User-selectable camera family known by a platform provisioner."""
+
+    id: str
+    name: str
+    model: str | None = None
+    focus_type: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -139,3 +163,5 @@ class ProvisioningSnapshot:
     pending_changes: bool = False
 
     errors: list[str] = field(default_factory=list)
+    ports: list[CameraPortOption] = field(default_factory=list)
+    sensor_options: list[CameraSensorOption] = field(default_factory=list)

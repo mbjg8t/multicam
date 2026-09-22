@@ -22,6 +22,10 @@ def test_cameras_page_renders_from_template():
 
     assert response.status_code == 200
     assert b"<h2>Cameras</h2>" in response.data
+    assert b'id="hardwarePortSelector"' in response.data
+    assert b"CAM/DISP0" in response.data
+    assert b"CAM/DISP1" in response.data
+    assert b"Review Selected Overlays" in response.data
 
 
 def test_alignment_page_renders_from_template():

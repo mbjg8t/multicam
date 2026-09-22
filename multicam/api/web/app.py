@@ -225,6 +225,27 @@ def serialize_provisioning():
         "reboot_required": snapshot.reboot_required,
         "apply_enabled": provisioning_apply_enabled,
         "errors": snapshot.errors,
+        "ports": [
+            {
+                "id": port.id,
+                "name": port.name,
+                "description": port.description,
+                "selected_sensor_id": port.selected_sensor_id,
+                "runtime_model": port.runtime_model,
+                "runtime_path": port.runtime_path,
+            }
+            for port in snapshot.ports
+        ],
+        "sensor_options": [
+            {
+                "id": sensor.id,
+                "name": sensor.name,
+                "model": sensor.model,
+                "focus_type": sensor.focus_type,
+                "metadata": sensor.metadata,
+            }
+            for sensor in snapshot.sensor_options
+        ],
         "proposed_changes": [
             {
                 "action": change.action,
@@ -232,6 +253,7 @@ def serialize_provisioning():
                 "overlay": change.overlay,
                 "parameters": change.parameters,
                 "reboot_required": change.reboot_required,
+                "metadata": change.metadata,
             }
             for change in snapshot.proposed_changes
         ],
@@ -822,6 +844,35 @@ def hardware_api():
     return jsonify(serialize_provisioning())
 
 
+def serialize_provisioning_change(change):
+    return {
+        "action": change.action,
+        "description": change.description,
+        "overlay": change.overlay,
+        "parameters": change.parameters,
+        "reboot_required": change.reboot_required,
+        "metadata": change.metadata,
+    }
+
+
+@app.route("/api/hardware/plan", methods=["POST"])
+def hardware_plan_api():
+    data = request.get_json(silent=True) or {}
+    selections = data.get("ports")
+    if not isinstance(selections, dict):
+        return jsonify({"error": "A ports object is required."}), 400
+
+    try:
+        changes = provisioning_service.plan_ports(selections)
+    except (TypeError, ValueError, NotImplementedError) as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    return jsonify({
+        "changes": [serialize_provisioning_change(change) for change in changes],
+        "reboot_required": any(change.reboot_required for change in changes),
+    })
+
+
 @app.route("/api/hardware/apply", methods=["POST"])
 def hardware_apply_api():
     if not provisioning_apply_enabled:
@@ -834,9 +885,20 @@ def hardware_apply_api():
             ),
         }), 403
 
-    snapshot = provisioning_service.inspect()
+    data = request.get_json(silent=True) or {}
+    selections = data.get("ports")
+    if selections is not None:
+        if not isinstance(selections, dict):
+            return jsonify({"success": False, "error": "Invalid ports object."}), 400
+        try:
+            changes = provisioning_service.plan_ports(selections)
+        except (TypeError, ValueError, NotImplementedError) as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
+    else:
+        snapshot = provisioning_service.inspect()
+        changes = snapshot.proposed_changes
 
-    if not snapshot.proposed_changes:
+    if not changes:
         return jsonify({
             "success": True,
             "applied_changes": [],
@@ -847,29 +909,17 @@ def hardware_apply_api():
         })
 
     result = provisioning_service.apply(
-        snapshot.proposed_changes
+        changes
     )
 
     return jsonify({
         "success": result.success,
         "applied_changes": [
-            {
-                "action": change.action,
-                "description": change.description,
-                "overlay": change.overlay,
-                "parameters": change.parameters,
-                "reboot_required": change.reboot_required,
-            }
+            serialize_provisioning_change(change)
             for change in result.applied_changes
         ],
         "skipped_changes": [
-            {
-                "action": change.action,
-                "description": change.description,
-                "overlay": change.overlay,
-                "parameters": change.parameters,
-                "reboot_required": change.reboot_required,
-            }
+            serialize_provisioning_change(change)
             for change in result.skipped_changes
         ],
         "backup_path": result.backup_path,

@@ -34,6 +34,15 @@ class CameraProvisioner(ABC):
             "This platform provisioner does not support configuration writes."
         )
 
+    def plan_ports(
+        self,
+        manager: CameraManager,
+        selections: dict[str, str | None],
+    ) -> list[ProvisioningChange]:
+        raise NotImplementedError(
+            "This platform provisioner does not support camera-port planning."
+        )
+
 
 class CameraProvisioningService:
     """
@@ -61,4 +70,13 @@ class CameraProvisioningService:
         return self._provisioner.apply(
             self._manager,
             changes,
+        )
+
+    def plan_ports(
+        self,
+        selections: dict[str, str | None],
+    ) -> list[ProvisioningChange]:
+        return self._provisioner.plan_ports(
+            self._manager,
+            selections,
         )

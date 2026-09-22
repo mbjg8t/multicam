@@ -18,6 +18,17 @@
     </div>
 
     <div id="hardwareSummary" class="camera-info"></div>
+    <div class="camera-info port-reference">
+        Pi 5: use the board labels <strong>CAM/DISP0</strong> and
+        <strong>CAM/DISP1</strong>. Both connectors sit between the micro-HDMI
+        and Ethernet ports. Do not use Picamera2 camera numbers as port names.
+    </div>
+    <div id="hardwarePortSelector" class="hardware-port-grid"></div>
+    <div class="row">
+        <button id="hardwarePlanButton" onclick="planHardwareConfiguration()">
+            Review Selected Overlays
+        </button>
+    </div>
     <div id="hardwareList"></div>
 
     <div style="margin-top: 12px;">
@@ -29,7 +40,7 @@
                 onclick="applyHardwareConfiguration()"
                 disabled
             >
-                Apply Configuration
+                Apply Selected Overlays
             </button>
         </div>
         <div id="hardwareProposed" class="camera-info"></div>

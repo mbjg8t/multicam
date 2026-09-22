@@ -6,6 +6,7 @@ from datetime import datetime
 
 from multicam.core.cameras import CameraInfo, CameraManager
 from multicam.core.provisioning import (
+    CameraPortOption,
     CameraProvisioner,
     CameraProvisioningEntry,
     ConfiguredCamera,
@@ -17,6 +18,11 @@ from multicam.core.provisioning import (
 )
 
 from .camera_overlays import is_camera_overlay
+from .camera_sensors import SENSOR_BY_ID, SENSOR_DEFINITIONS
+
+
+MANAGED_BEGIN = "# BEGIN MULTICAM CAMERA CONFIGURATION"
+MANAGED_END = "# END MULTICAM CAMERA CONFIGURATION"
 
 
 class RaspberryPiCameraProvisioner(CameraProvisioner):
@@ -30,7 +36,8 @@ class RaspberryPiCameraProvisioner(CameraProvisioner):
       - inspect Picamera2/libcamera runtime cameras
       - correlate runtime camera models with configured overlays
 
-    It intentionally does NOT modify boot configuration or reboot.
+    Boot writes are exposed only through the guarded provisioning service.
+    Rebooting remains outside this adapter.
     """
 
     def __init__(
@@ -74,6 +81,8 @@ class RaspberryPiCameraProvisioner(CameraProvisioner):
             errors,
         )
 
+        ports = self._port_options(configured_cameras, runtime_cameras)
+
         return ProvisioningSnapshot(
             platform="raspberry_pi",
             platform_model=platform_model,
@@ -89,7 +98,49 @@ class RaspberryPiCameraProvisioner(CameraProvisioner):
             ),
             pending_changes=bool(proposed_changes),
             errors=errors,
+            ports=ports,
+            sensor_options=[sensor.as_option() for sensor in SENSOR_DEFINITIONS],
         )
+
+    def plan_ports(
+        self,
+        manager: CameraManager,
+        selections: dict[str, str | None],
+    ) -> list[ProvisioningChange]:
+        del manager
+
+        unknown_ports = set(selections) - {"cam0", "cam1"}
+        if unknown_ports:
+            raise ValueError(
+                "Unknown camera port(s): " + ", ".join(sorted(unknown_ports))
+            )
+
+        changes: list[ProvisioningChange] = []
+        for port_id in ("cam0", "cam1"):
+            sensor_id = selections.get(port_id)
+            if sensor_id in (None, "", "none"):
+                changes.append(ProvisioningChange(
+                    action="replace_camera_configuration",
+                    description=f"Configure {port_id.upper()} with no camera.",
+                    reboot_required=True,
+                    metadata={"port_id": port_id, "sensor_id": None},
+                ))
+                continue
+
+            sensor = SENSOR_BY_ID.get(sensor_id)
+            if sensor is None:
+                raise ValueError(f"Unknown camera sensor selection: {sensor_id}")
+
+            changes.append(ProvisioningChange(
+                action="replace_camera_configuration",
+                description=f"Configure {port_id.upper()} for {sensor.name}.",
+                overlay=sensor.overlay,
+                parameters=sensor.parameters_for_port(port_id),
+                reboot_required=True,
+                metadata={"port_id": port_id, "sensor_id": sensor_id},
+            ))
+
+        return changes
 
     def apply(
         self,
@@ -99,10 +150,10 @@ class RaspberryPiCameraProvisioner(CameraProvisioner):
         """
         Apply explicitly requested Raspberry Pi camera configuration changes.
 
-        Current safety limits:
-          - only add_overlay is supported
-          - existing overlays are never removed
-          - port assignments must come from resolved device-tree topology
+        Safety limits:
+          - selected-port changes must include both CAM0 and CAM1
+          - only known sensor definitions generate managed overlay lines
+          - unrelated boot configuration is preserved
           - a backup is created before modification
           - resulting configuration is verified after writing
           - reboot is never performed here
@@ -115,6 +166,10 @@ class RaspberryPiCameraProvisioner(CameraProvisioner):
                 success=True,
                 reboot_required=False,
             )
+
+        actions = {change.action for change in changes}
+        if actions == {"replace_camera_configuration"}:
+            return self._apply_port_configuration(changes)
 
         unsupported = [
             change
@@ -272,6 +327,194 @@ class RaspberryPiCameraProvisioner(CameraProvisioner):
                 for change in applied
             ),
         )
+
+    def _apply_port_configuration(
+        self,
+        changes: list[ProvisioningChange],
+    ) -> ProvisioningApplyResult:
+        port_changes = {
+            change.metadata.get("port_id"): change
+            for change in changes
+        }
+        if len(changes) != 2 or set(port_changes) != {"cam0", "cam1"}:
+            return ProvisioningApplyResult(
+                success=False,
+                errors=["A complete CAM0 and CAM1 selection is required."],
+            )
+
+        for port_id, change in port_changes.items():
+            sensor_id = change.metadata.get("sensor_id")
+            if sensor_id is None:
+                valid = change.overlay is None and not change.parameters
+            else:
+                sensor = SENSOR_BY_ID.get(sensor_id)
+                valid = bool(
+                    sensor
+                    and change.overlay == sensor.overlay
+                    and change.parameters == sensor.parameters_for_port(port_id)
+                )
+            if not valid:
+                return ProvisioningApplyResult(
+                    success=False,
+                    errors=[
+                        f"Invalid or stale camera plan for {port_id.upper()}."
+                    ],
+                )
+
+        try:
+            original_text = self.config_path.read_text()
+        except Exception as exc:
+            return ProvisioningApplyResult(
+                success=False,
+                errors=[f"Unable to read {self.config_path}: {exc}"],
+            )
+
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        backup_path = self.config_path.with_name(
+            f"{self.config_path.name}.multicam-{timestamp}.bak"
+        )
+        try:
+            shutil.copy2(self.config_path, backup_path)
+            updated = self._replace_managed_camera_configuration(
+                original_text,
+                [port_changes["cam0"], port_changes["cam1"]],
+            )
+            self.config_path.write_text(updated)
+            verified = self.config_path.read_text()
+        except Exception as exc:
+            return ProvisioningApplyResult(
+                success=False,
+                backup_path=str(backup_path) if backup_path.exists() else None,
+                errors=[f"Unable to update {self.config_path}: {exc}"],
+            )
+
+        expected_lines = {
+            self._overlay_line(change)
+            for change in changes
+            if change.overlay
+        }
+        if not expected_lines.issubset(set(verified.splitlines())):
+            return ProvisioningApplyResult(
+                success=False,
+                applied_changes=changes,
+                backup_path=str(backup_path),
+                errors=["Managed camera configuration verification failed."],
+            )
+
+        return ProvisioningApplyResult(
+            success=True,
+            applied_changes=changes,
+            backup_path=str(backup_path),
+            reboot_required=True,
+        )
+
+    def _replace_managed_camera_configuration(
+        self,
+        text: str,
+        changes: list[ProvisioningChange],
+    ) -> str:
+        output: list[str] = []
+        inside_managed = False
+
+        for original_line in text.splitlines():
+            stripped = original_line.strip()
+            if stripped == MANAGED_BEGIN:
+                inside_managed = True
+                continue
+            if stripped == MANAGED_END:
+                inside_managed = False
+                continue
+            if inside_managed:
+                continue
+
+            if stripped.startswith("camera_auto_detect="):
+                continue
+
+            if stripped.startswith("dtoverlay="):
+                overlay = stripped.split("=", 1)[1].split(",", 1)[0].strip()
+                if is_camera_overlay(overlay):
+                    output.append(f"# multicam-replaced: {stripped}")
+                    continue
+
+            output.append(original_line)
+
+        while output and not output[-1].strip():
+            output.pop()
+
+        # Re-enter the global section so a preceding board-specific section
+        # cannot accidentally scope the generated camera configuration.
+        output.extend(["", "[all]", MANAGED_BEGIN, "camera_auto_detect=0"])
+        output.extend(
+            self._overlay_line(change)
+            for change in changes
+            if change.overlay
+        )
+        output.append(MANAGED_END)
+        return "\n".join(output) + "\n"
+
+    @staticmethod
+    def _overlay_line(change: ProvisioningChange) -> str:
+        parts = [f"dtoverlay={change.overlay}"]
+        for key, value in change.parameters.items():
+            parts.append(str(key) if value is True else f"{key}={value}")
+        return ",".join(parts)
+
+    def _port_options(
+        self,
+        configured: list[ConfiguredCamera],
+        runtime: list[RuntimeCamera],
+    ) -> list[CameraPortOption]:
+        results: list[CameraPortOption] = []
+        for port_id, description in (
+            ("cam0", "Board connector labelled CAM/DISP0"),
+            ("cam1", "Board connector labelled CAM/DISP1"),
+        ):
+            config = next(
+                (item for item in configured if self._configuration_port(item) == port_id),
+                None,
+            )
+            camera = next(
+                (item for item in runtime if self._runtime_port(item) == port_id),
+                None,
+            )
+            sensor_id = self._sensor_id_for_configuration(config)
+            results.append(CameraPortOption(
+                id=port_id,
+                name=port_id.upper(),
+                description=description,
+                selected_sensor_id=sensor_id,
+                runtime_model=camera.model if camera else None,
+                runtime_path=camera.runtime_path if camera else None,
+            ))
+        return results
+
+    @staticmethod
+    def _configuration_port(config: ConfiguredCamera) -> str:
+        return config.port_hint or "cam1"
+
+    def _runtime_port(self, runtime: RuntimeCamera) -> str | None:
+        parameters = self._runtime_overlay_parameters(runtime)
+        if parameters is None:
+            return None
+        return "cam0" if parameters.get("cam0") is True else "cam1"
+
+    @staticmethod
+    def _sensor_id_for_configuration(
+        config: ConfiguredCamera | None,
+    ) -> str | None:
+        if config is None:
+            return None
+        candidates = [
+            sensor for sensor in SENSOR_DEFINITIONS
+            if sensor.overlay == config.overlay.lower()
+        ]
+        if config.overlay.lower() == "imx519":
+            return (
+                "imx519_manual"
+                if config.parameters.get("vcm") == "off"
+                else "imx519_af"
+            )
+        return candidates[0].id if candidates else None
 
     @staticmethod
     def _active_overlay_names(text: str) -> set[str]:
@@ -628,8 +871,8 @@ class RaspberryPiCameraProvisioner(CameraProvisioner):
             or runtime.startswith(parent + "/")
         )
 
-    @staticmethod
     def _find_configuration(
+        self,
         runtime: RuntimeCamera,
         configured: list[ConfiguredCamera],
     ) -> ConfiguredCamera | None:
@@ -639,8 +882,22 @@ class RaspberryPiCameraProvisioner(CameraProvisioner):
             if value
         }
 
-        for config in configured:
-            if config.overlay.lower() in names:
-                return config
+        name_matches = [
+            config
+            for config in configured
+            if config.overlay.lower() in names
+        ]
+
+        runtime_port = self._runtime_port(runtime)
+        if runtime_port is not None:
+            for config in name_matches:
+                if self._configuration_port(config) == runtime_port:
+                    return config
+
+        # Topology may be unavailable on a non-Pi development host. A model
+        # match remains useful there, but physical-port identity always wins
+        # when the live device tree can resolve it.
+        if name_matches:
+            return name_matches[0]
 
         return None

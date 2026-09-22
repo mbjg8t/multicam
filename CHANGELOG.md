@@ -1,5 +1,17 @@
 # Changelog
 
+## Camera port provisioning foundation
+
+- Added portable camera-port and sensor option models plus plan/apply service
+  methods, leaving overlay syntax out of the core.
+- Added a Raspberry Pi sensor catalog for OV5647, IMX219, manual/autofocus
+  IMX519, and OV64A40 cameras.
+- Added CAM0/CAM1 selectors and exact-overlay review to Hardware Configuration.
+- Added guarded managed-block replacement with timestamped backup, preservation
+  of unrelated boot settings, read-back verification, and separate reboot state.
+- Prefer live device-tree topology over runtime camera numbers when correlating
+  physical ports, including identical sensor models on both connectors.
+
 ## Multicam 1.0 development
 
 ### Current foundation

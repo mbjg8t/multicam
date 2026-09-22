@@ -8,10 +8,10 @@ from __future__ import annotations
 # Keep this conservative: add camera overlays as we actually support or
 # verify them rather than guessing arbitrary dtoverlay names.
 
-CAMERA_OVERLAYS: set[str] = {
-    "ov5647",
-    "ov64a40",
-}
+from .camera_sensors import CAMERA_OVERLAY_NAMES
+
+
+CAMERA_OVERLAYS: set[str] = set(CAMERA_OVERLAY_NAMES)
 
 
 def is_camera_overlay(name: str) -> bool:

@@ -6,6 +6,8 @@ from .model import (
     ProvisioningSnapshot,
     ProvisioningStatus,
     RuntimeCamera,
+    CameraPortOption,
+    CameraSensorOption,
 )
 from .service import CameraProvisioner, CameraProvisioningService
 
@@ -19,4 +21,6 @@ __all__ = [
     "ProvisioningSnapshot",
     "ProvisioningStatus",
     "RuntimeCamera",
+    "CameraPortOption",
+    "CameraSensorOption",
 ]

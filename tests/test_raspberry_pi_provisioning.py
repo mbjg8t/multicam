@@ -620,6 +620,134 @@ def test_service_apply_delegates_to_pi_provisioner(
     assert "dtoverlay=ov5647\n" in config.read_text()
 
 
+def test_plan_ports_generates_known_good_ov5647_imx519_pair(tmp_path: Path):
+    config = tmp_path / "config.txt"
+    model = tmp_path / "model"
+    config.write_text("camera_auto_detect=1\n")
+    model.write_text("Raspberry Pi 5")
+
+    provisioner = RaspberryPiCameraProvisioner(
+        config_path=config,
+        model_path=model,
+    )
+    changes = provisioner.plan_ports(
+        CameraManager(),
+        {"cam0": "ov5647", "cam1": "imx519_manual"},
+    )
+
+    assert [change.overlay for change in changes] == ["ov5647", "imx519"]
+    assert changes[0].parameters == {"cam0": True}
+    assert changes[1].parameters == {"vcm": "off"}
+    assert changes[0].metadata == {"port_id": "cam0", "sensor_id": "ov5647"}
+    assert changes[1].metadata == {
+        "port_id": "cam1",
+        "sensor_id": "imx519_manual",
+    }
+
+
+def test_apply_port_plan_replaces_camera_overlays_and_preserves_others(
+    tmp_path: Path,
+):
+    config = tmp_path / "config.txt"
+    model = tmp_path / "model"
+    original = (
+        "[all]\n"
+        "camera_auto_detect=0\n"
+        "dtoverlay=dwc2,dr_mode=host\n"
+        "dtoverlay=ov64a40\n"
+        "dtoverlay=ov5647,cam0\n"
+    )
+    config.write_text(original)
+    model.write_text("Raspberry Pi 5")
+
+    provisioner = RaspberryPiCameraProvisioner(
+        config_path=config,
+        model_path=model,
+    )
+    changes = provisioner.plan_ports(
+        CameraManager(),
+        {"cam0": "ov5647", "cam1": "imx519_manual"},
+    )
+    result = provisioner.apply(CameraManager(), changes)
+
+    assert result.success is True
+    assert result.reboot_required is True
+    assert result.backup_path is not None
+    assert Path(result.backup_path).read_text() == original
+
+    updated = config.read_text()
+    assert "dtoverlay=dwc2,dr_mode=host" in updated
+    assert "# multicam-replaced: dtoverlay=ov64a40" in updated
+    assert "# multicam-replaced: dtoverlay=ov5647,cam0" in updated
+    assert "# BEGIN MULTICAM CAMERA CONFIGURATION" in updated
+    assert "camera_auto_detect=0" in updated
+    assert "dtoverlay=ov5647,cam0" in updated
+    assert "dtoverlay=imx519,vcm=off" in updated
+    assert "# END MULTICAM CAMERA CONFIGURATION" in updated
+
+
+def test_apply_port_plan_requires_both_physical_ports(tmp_path: Path):
+    from multicam.core.provisioning import ProvisioningChange
+
+    config = tmp_path / "config.txt"
+    model = tmp_path / "model"
+    original = "camera_auto_detect=0\n"
+    config.write_text(original)
+    model.write_text("Raspberry Pi 5")
+
+    result = RaspberryPiCameraProvisioner(
+        config_path=config,
+        model_path=model,
+    ).apply(CameraManager(), [ProvisioningChange(
+        action="replace_camera_configuration",
+        description="Incomplete plan",
+        overlay="ov5647",
+        parameters={"cam0": True},
+        metadata={"port_id": "cam0", "sensor_id": "ov5647"},
+    )])
+
+    assert result.success is False
+    assert "complete CAM0 and CAM1" in result.errors[0]
+    assert config.read_text() == original
+
+
+def test_same_model_cameras_are_correlated_by_device_tree_port(tmp_path: Path):
+    config = tmp_path / "config.txt"
+    model = tmp_path / "model"
+    symbols = tmp_path / "__symbols__"
+    symbols.mkdir()
+    config.write_text(
+        "camera_auto_detect=0\n"
+        "dtoverlay=ov5647,cam0\n"
+        "dtoverlay=ov5647\n"
+    )
+    model.write_text("Raspberry Pi 5")
+    (symbols / "i2c_csi_dsi0").write_bytes(b"/test/i2c@88000\x00")
+    (symbols / "i2c_csi_dsi1").write_bytes(b"/test/i2c@80000\x00")
+
+    cameras = [
+        make_camera("picamera2:/base/test/i2c@80000/ov5647@36", "ov5647", 0, 0),
+        make_camera("picamera2:/base/test/i2c@88000/ov5647@36", "ov5647", 1, 0),
+    ]
+    manager = CameraManager()
+    manager.register_backend(FakeBackend(cameras))
+    manager.discover()
+
+    snapshot = RaspberryPiCameraProvisioner(
+        config_path=config,
+        model_path=model,
+        symbols_path=symbols,
+    ).inspect(manager)
+    by_path = {
+        entry.runtime.runtime_path: entry.configured
+        for entry in snapshot.entries
+        if entry.runtime is not None
+    }
+
+    assert by_path[cameras[0].metadata["raw_info"]["Id"]].port_hint is None
+    assert by_path[cameras[1].metadata["raw_info"]["Id"]].port_hint == "cam0"
+
+
 def test_pi_runtime_path_resolves_cam0_from_device_tree_symbol(
     tmp_path: Path,
 ):

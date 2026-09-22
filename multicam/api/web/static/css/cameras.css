@@ -109,6 +109,31 @@ button:disabled {
     min-height: 18px;
 }
 
+.port-reference {
+    padding: 8px 10px;
+    border-left: 3px solid #6aa9ff;
+    background: #202a34;
+}
+
+.hardware-port-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.hardware-port-card {
+    border: 1px solid #4b4b4b;
+    border-radius: 5px;
+    padding: 12px;
+    background: #202020;
+}
+
+.hardware-port-card select {
+    min-width: 0;
+    width: 100%;
+}
+
 .camera-settings {
     display: none;
     margin-top: 10px;

@@ -70,7 +70,7 @@ Unplug and reconnect the camera afterward.
 ## Raspberry Pi CSI cameras
 
 CSI cameras may require a device-tree overlay before Picamera2 can use them.
-Current cameras include OV5647 and OV64A40/Arducam 64 MP.
+Tested cameras include OV5647, IMX519/B0449, and OV64A40/Arducam 64 MP.
 
 Check detection outside Multicam:
 
@@ -86,10 +86,15 @@ In Multicam, open **Cameras → Hardware Configuration**. Multicam compares:
 - `/boot/firmware/config.txt`
 - the required camera overlay
 
-### CAM0 and CAM1
+### CAM0 and CAM1 on Raspberry Pi 5
 
 Do not assume Picamera2 camera number 0 means CAM0. Multicam resolves the
 physical connector from the device-tree path.
+
+Use the connector names printed on the board: `CAM/DISP0` and `CAM/DISP1`.
+Both camera/display connectors are between the micro-HDMI connectors and the
+Ethernet jack. Use the silkscreen label rather than a remembered left/right or
+“closest to USB” description, since board orientation makes those ambiguous.
 
 On the current Raspberry Pi 5:
 
@@ -98,20 +103,52 @@ On the current Raspberry Pi 5:
 | CSI/DSI0 | `i2c@88000` | `dtoverlay=<sensor>,cam0` |
 | CSI/DSI1 | `i2c@80000` | `dtoverlay=<sensor>` |
 
-Current known-good configuration:
+Current known-good OV5647 + manual-focus IMX519/B0449 configuration:
 
 ```text
 camera_auto_detect=0
-dtoverlay=ov64a40
 dtoverlay=ov5647,cam0
+dtoverlay=imx519,vcm=off
 ```
 
 Current physical mapping:
 
 | Connector | Camera | Overlay |
 | --- | --- | --- |
-| CSI/DSI0 | OV5647 | `dtoverlay=ov5647,cam0` |
-| CSI/DSI1 | OV64A40 | `dtoverlay=ov64a40` |
+| CAM/DISP0 | OV5647 | `dtoverlay=ov5647,cam0` |
+| CAM/DISP1 | IMX519/B0449 manual lens | `dtoverlay=imx519,vcm=off` |
+
+The previously tested OV64A40 on CAM/DISP1 uses
+`dtoverlay=ov64a40`. Direct sensor overlays are preferred. Earlier attempts
+with generic `arducam-64mp` and `arducam-pivariety` overlays produced sensor
+identification or register-read failures on this hardware.
+
+### Add or replace CSI cameras
+
+Open **Cameras → Hardware Configuration** and select the physically installed
+sensor independently for CAM0 and CAM1. `None / no camera` deliberately removes
+the managed overlay for that connector. Choose **Review Selected Overlays**
+before applying; the UI shows the exact `dtoverlay` lines that will be used.
+
+The sensor catalog is implemented by the Raspberry Pi platform adapter, not by
+the portable camera core. Adding a sensor normally requires one catalog entry
+containing its stable ID, display name, runtime model, overlay, focus type, and
+default parameters. The same generic UI and provisioning service then expose
+it automatically.
+
+When applied, Multicam:
+
+1. requires a complete selection for both physical ports;
+2. creates a timestamped backup of `config.txt`;
+3. preserves unrelated settings and overlays;
+4. replaces camera overlays with one marked, managed block;
+5. writes `camera_auto_detect=0` and the reviewed direct-sensor overlays;
+6. reads the file back and verifies the expected lines;
+7. reports that a reboot is required.
+
+Applying and rebooting remain separate operations. This prevents an accidental
+selection from immediately taking the Pi offline and leaves a backup for manual
+recovery.
 
 ## Provisioning status
 
@@ -129,10 +166,20 @@ For example, `DETECTED_NOT_CONFIGURED` with `dtoverlay=ov5647,cam0` means the
 camera was detected but the corresponding boot overlay is missing.
 
 The provisioning service can determine required changes, preserve unrelated
-settings, create a timestamped backup, write a proposed overlay, and verify the
-result. Normal web-app startup intentionally does not have permission to modify
-the real boot configuration. Review the proposal and edit the configuration
-manually until a privileged helper is implemented.
+settings, create a timestamped backup, write a reviewed overlay set, and verify
+the result. Boot writes are disabled in a normal web-app startup. The current
+write guard is intended for testing against an alternate config file:
+
+```bash
+clear
+MULTICAM_PI_CONFIG=/tmp/multicam-config.txt \
+MULTICAM_ALLOW_PROVISIONING_WRITE=1 \
+multicam
+```
+
+A future narrowly privileged system helper should own real
+`/boot/firmware/config.txt` writes and reboot requests. The web process should
+not run as root.
 
 After changing an overlay:
 

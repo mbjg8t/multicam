@@ -142,6 +142,8 @@ Implemented foundation:
 - camera configuration window
 - camera profiles
 - Raspberry Pi camera provisioning inspection
+- portable camera-port/sensor provisioning contracts with a Raspberry Pi
+  direct-sensor overlay catalog and guarded managed-config writer
 - generic registration state using target-to-reference 3x3 matrices
 - frozen-frame one-click structural matching and reversible draft transforms
 - persistent per-camera display orientation applied before registration
@@ -233,6 +235,21 @@ Focus, Alignment, capture, and measurement services continue to read the raw
 broker frame. Current processors preserve geometry; future geometry-changing
 processors must change a geometry signature and invalidate registrations made
 in a different coordinate system.
+
+Camera onboarding follows the same adapter boundary. Portable provisioning
+models describe selectable connectors, sensor choices, proposed changes, and
+apply results without mentioning device trees or boot files. A platform
+provisioner owns hardware-specific discovery and configuration. On Raspberry
+Pi, the sensor catalog maps a stable selection ID to a direct `dtoverlay`, while
+live device-tree topology maps runtime cameras to CAM0/CAM1. UI code consumes
+only the portable snapshot and plan APIs. This keeps future Jetson, Windows,
+USB, and network-camera onboarding from inheriting Raspberry Pi assumptions.
+
+Platform configuration writes are transactional at the adapter level: validate
+the complete desired state, back up the source file, replace only a marked
+managed section, verify the result, and report a separate reboot requirement.
+The web application must not gain broad root privileges; real boot writes and
+reboots belong behind a narrow system integration boundary.
 
 ## Persistent and Runtime Data
 

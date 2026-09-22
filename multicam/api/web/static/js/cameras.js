@@ -5,6 +5,8 @@ let viewState = null;
 const openCameraSettings = new Set();
 let lastLayerRenderKey = null;
 let hardwareState = null;
+let hardwarePortSelections = null;
+let plannedHardwareChanges = null;
 
 
 async function api(url, options = {}) {
@@ -66,6 +68,133 @@ async function refreshHardware() {
 }
 
 
+function selectedPortPayload() {
+    return {ports: {...(hardwarePortSelections || {})}};
+}
+
+
+async function planHardwareConfiguration() {
+    const proposed = document.getElementById('hardwareProposed');
+    proposed.textContent = 'Building configuration proposal...';
+
+    try {
+        const plan = await api('/api/hardware/plan', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(selectedPortPayload())
+        });
+        plannedHardwareChanges = plan.changes;
+        renderHardwareProposal();
+    } catch (error) {
+        plannedHardwareChanges = null;
+        proposed.className = 'camera-info stream-error';
+        proposed.textContent = error.message;
+    }
+}
+
+
+function updateHardwarePort(portId, sensorId) {
+    hardwarePortSelections ||= {};
+    hardwarePortSelections[portId] = sensorId || null;
+    plannedHardwareChanges = null;
+    renderHardwareProposal();
+}
+
+
+function renderHardwarePorts() {
+    const container = document.getElementById('hardwarePortSelector');
+    const ports = hardwareState?.ports || [];
+    const sensors = hardwareState?.sensor_options || [];
+
+    if (hardwarePortSelections === null) {
+        hardwarePortSelections = Object.fromEntries(
+            ports.map(port => [port.id, port.selected_sensor_id])
+        );
+    }
+
+    container.replaceChildren();
+    for (const port of ports) {
+        const card = document.createElement('div');
+        card.className = 'hardware-port-card';
+
+        const title = document.createElement('strong');
+        title.textContent = port.name;
+        card.append(title);
+
+        const description = document.createElement('div');
+        description.className = 'camera-info';
+        description.textContent = port.description;
+        card.append(description);
+
+        const select = document.createElement('select');
+        const none = document.createElement('option');
+        none.value = '';
+        none.textContent = 'None / no camera';
+        select.append(none);
+
+        for (const sensor of sensors) {
+            const option = document.createElement('option');
+            option.value = sensor.id;
+            option.textContent = sensor.name;
+            select.append(option);
+        }
+
+        select.value = hardwarePortSelections[port.id] || '';
+        select.addEventListener('change', () => {
+            updateHardwarePort(port.id, select.value);
+        });
+        card.append(select);
+
+        const runtime = document.createElement('div');
+        runtime.className = 'camera-info';
+        runtime.textContent = port.runtime_model
+            ? `Running now: ${port.runtime_model}`
+            : 'No runtime camera currently matched to this port';
+        card.append(runtime);
+        container.append(card);
+    }
+}
+
+
+function renderHardwareProposal() {
+    const proposed = document.getElementById('hardwareProposed');
+    const applyButton = document.getElementById('hardwareApplyButton');
+    const changes = plannedHardwareChanges || [];
+
+    proposed.className = 'camera-info';
+    proposed.replaceChildren();
+    applyButton.disabled = !(
+        hardwareState?.apply_enabled && changes.length > 0
+    );
+    applyButton.title = hardwareState?.apply_enabled
+        ? ''
+        : 'Provisioning writes are disabled for this startup.';
+
+    if (plannedHardwareChanges === null) {
+        proposed.textContent =
+            'Select the installed sensor for each port, then review the overlays.';
+        return;
+    }
+
+    for (const change of changes) {
+        const div = document.createElement('div');
+        div.className = 'camera-info';
+        const params = change.parameters || {};
+        const paramText = Object.entries(params)
+            .map(([key, value]) => value === true ? key : `${key}=${value}`)
+            .join(',');
+        let text = change.description;
+        if (change.overlay) {
+            text += ` | dtoverlay=${change.overlay}`;
+            if (paramText) text += `,${paramText}`;
+        }
+        text += ' | reboot required';
+        div.textContent = text;
+        proposed.append(div);
+    }
+}
+
+
 async function applyHardwareConfiguration() {
     const button = document.getElementById(
         'hardwareApplyButton'
@@ -82,7 +211,8 @@ async function applyHardwareConfiguration() {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
-            }
+            },
+            body: JSON.stringify(selectedPortPayload())
         });
 
         const result = await response.json();
@@ -110,6 +240,8 @@ async function applyHardwareConfiguration() {
         resultDiv.textContent = message;
 
         hardwareState = await api('/api/hardware');
+        hardwarePortSelections = null;
+        plannedHardwareChanges = null;
         renderHardware();
 
         // renderHardware clears/rebuilds the hardware presentation,
@@ -134,10 +266,6 @@ function renderHardware() {
     const summary = document.getElementById('hardwareSummary');
     const container = document.getElementById('hardwareList');
     const proposed = document.getElementById('hardwareProposed');
-    const applyButton = document.getElementById(
-        'hardwareApplyButton'
-    );
-
     if (!hardwareState) {
         summary.textContent = 'Hardware status unavailable';
         container.innerHTML = '';
@@ -157,14 +285,12 @@ function renderHardware() {
 
     container.innerHTML = '';
     proposed.innerHTML = '';
+    renderHardwarePorts();
 
     if (hardwareState.entries.length === 0) {
         container.innerHTML =
             '<div class="empty">No provisioned CSI cameras detected</div>';
-        return;
-    }
-
-    hardwareState.entries.forEach(entry => {
+    } else hardwareState.entries.forEach(entry => {
         const div = document.createElement('div');
         div.className = 'layer';
 
@@ -217,53 +343,7 @@ function renderHardware() {
         container.appendChild(errorDiv);
     }
 
-    const changes = hardwareState.proposed_changes || [];
-
-    applyButton.disabled = !(
-        hardwareState.apply_enabled &&
-        changes.length > 0
-    );
-
-    applyButton.title = hardwareState.apply_enabled
-        ? ''
-        : 'Provisioning writes are disabled for this startup.';
-
-    if (changes.length === 0) {
-        proposed.textContent = 'No configuration changes proposed.';
-    } else {
-        changes.forEach(change => {
-            const div = document.createElement('div');
-            div.className = 'camera-info';
-
-            const params = change.parameters || {};
-
-            const paramText = Object.entries(params)
-                .map(([key, value]) =>
-                    value === true ? key : `${key}=${value}`
-                )
-                .join(',');
-
-            let text =
-                change.description ||
-                change.action ||
-                'Configuration change';
-
-            if (change.overlay) {
-                text += ` | dtoverlay=${change.overlay}`;
-
-                if (paramText) {
-                    text += `,${paramText}`;
-                }
-            }
-
-            if (change.reboot_required) {
-                text += ' | reboot required';
-            }
-
-            div.textContent = text;
-            proposed.appendChild(div);
-        });
-    }
+    renderHardwareProposal();
 }
 
 
