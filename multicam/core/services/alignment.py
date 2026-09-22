@@ -176,10 +176,10 @@ class AlignmentService:
                 "similarity"
                 if point_count == 2
                 else "affine"
-                if point_count == 3
+                if point_count < 6
                 else "auto"
             )
-        elif requested_model == "homography" and point_count < 4:
+        elif requested_model == "homography" and point_count < 6:
             progressive_model = "similarity" if point_count == 2 else "affine"
         elif requested_model == "affine" and point_count < 3:
             progressive_model = "similarity"
@@ -232,6 +232,8 @@ class AlignmentService:
             inlier_mask=tuple(inliers),
             rms_error_px=rms_error,
             max_error_px=max(inlier_residuals),
+            fit_status=self._fit_status(model, point_count),
+            fit_message=self._fit_message(model, point_count),
         )
         self.state.set_draft(target_id, transform)
         return transform
@@ -785,35 +787,72 @@ class AlignmentService:
 
         if not candidates:
             raise ValueError("Point layout cannot determine a valid transform")
-        minimum_inliers = max(4, math.ceil(len(source_points) * 0.75))
-        best_inlier_count = max(sum(candidate[3]) for candidate in candidates)
+        # Prefer the least complex model that explains the observations. A
+        # four-point homography can interpolate any four pairs exactly, so an
+        # RMS-only winner would systematically overfit operator clicks.
+        selected = candidates[0]
 
-        for candidate in candidates:
-            _, _, residuals, inliers = candidate
-            inlier_residuals = [
-                residual
-                for residual, inlier in zip(residuals, inliers)
-                if inlier
-            ]
-            rms = math.sqrt(
-                sum(value * value for value in inlier_residuals)
-                / len(inlier_residuals)
+        for candidate in candidates[1:]:
+            selected_rms = cls._inlier_rms(selected[2], selected[3])
+            candidate_rms = cls._inlier_rms(candidate[2], candidate[3])
+            selected_count = sum(selected[3])
+            candidate_count = sum(candidate[3])
+            enough_consensus = candidate_count >= max(
+                4,
+                math.ceil(len(source_points) * 0.75),
+            )
+            materially_better = (
+                candidate_rms <= selected_rms * 0.65
+                and selected_rms - candidate_rms >= threshold * 0.35
+            )
+            rescues_bad_fit = (
+                selected_rms > threshold * 1.5
+                and candidate_rms <= threshold
             )
 
             if (
-                len(inlier_residuals) == best_inlier_count
-                and len(inlier_residuals) >= minimum_inliers
-                and rms <= threshold
+                enough_consensus
+                and candidate_count >= selected_count
+                and (materially_better or rescues_bad_fit)
             ):
-                return candidate
+                selected = candidate
 
-        return max(
-            candidates,
-            key=lambda item: (
-                sum(item[3]),
-                -cls._inlier_rms(item[2], item[3]),
-            ),
+        return selected
+
+    @staticmethod
+    def _fit_status(model: str, point_count: int) -> str:
+        stable_minimum = {
+            "translation": 1,
+            "similarity": 3,
+            "affine": 4,
+            "homography": 6,
+        }
+        return (
+            "stable"
+            if point_count >= stable_minimum.get(model, point_count)
+            else "provisional"
         )
+
+    @staticmethod
+    def _fit_message(model: str, point_count: int) -> str | None:
+        mathematical_minimum = {
+            "translation": 1,
+            "similarity": 2,
+            "affine": 3,
+            "homography": 4,
+        }
+        robust_minimum = {
+            "translation": 1,
+            "similarity": 4,
+            "affine": 6,
+            "homography": 8,
+        }
+
+        if point_count == mathematical_minimum.get(model):
+            return "Exact minimum-point fit; add pairs to measure fit error."
+        if point_count < robust_minimum.get(model, point_count):
+            return "All pairs are used; add pairs before outlier detection."
+        return "Redundant fit with outlier detection enabled."
 
     @classmethod
     def _raise_model_mismatch_if_detected(
@@ -901,6 +940,26 @@ class AlignmentService:
             "affine": cls._solve_affine,
             "homography": cls._solve_homography,
         }[model]
+
+        # Do not run minimal-subset consensus until the model has genuine
+        # redundancy. Below these counts, least-squares over every operator
+        # pair is more stable and never makes a prior point suddenly become
+        # an arbitrary outlier when one new pair is added.
+        robust_minimum = {
+            "similarity": 4,
+            "affine": 6,
+            "homography": 8,
+        }[model]
+
+        if len(source_points) < robust_minimum:
+            matrix = solver(source_points, reference_points)
+            residuals = cls._point_residuals(
+                matrix,
+                source_points,
+                reference_points,
+            )
+            return matrix, model, residuals, [True] * len(source_points)
+
         sample_sets = list(combinations(range(len(source_points)), minimum))
 
         if len(sample_sets) > 256:

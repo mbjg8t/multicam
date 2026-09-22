@@ -27,6 +27,8 @@ class RegistrationTransform:
     inlier_mask: tuple[bool, ...] = ()
     rms_error_px: float | None = None
     max_error_px: float | None = None
+    fit_status: str = "stable"
+    fit_message: str | None = None
     created_at: float = field(default_factory=time.time)
 
     @property
@@ -92,6 +94,8 @@ class RegistrationTransform:
             inlier_mask=(True,),
             rms_error_px=0.0,
             max_error_px=0.0,
+            fit_status="provisional",
+            fit_message="One pair determines translation only.",
         )
 
     @classmethod
@@ -146,6 +150,8 @@ class RegistrationTransform:
             inlier_mask=(),
             rms_error_px=None,
             max_error_px=None,
+            fit_status="adjusted",
+            fit_message="Transform was manually nudged.",
             created_at=time.time(),
         )
 

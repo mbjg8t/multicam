@@ -37,16 +37,17 @@ function cameraLabel(camera) {
 
 function modelSpec() {
     return {
-        auto: {minimum: 6, maximum: 12, label: 'Precision auto'},
+        auto: {minimum: 3, maximum: 12, label: 'Guided auto'},
         translation: {minimum: 1, maximum: 1, label: 'Shift'},
         similarity: {minimum: 2, maximum: 12, label: 'Rotation + scale'},
-        affine: {minimum: 3, maximum: 12, label: 'Stretch + skew'},
-        homography: {minimum: 4, maximum: 12, label: 'Perspective / homography'}
+        affine: {minimum: 3, maximum: 12, label: 'Quick affine'},
+        homography: {minimum: 6, maximum: 12, label: 'Planar precision'}
     }[modelSelect.value];
 }
 
 function modelName(count = pointPairs.length) {
-    if (count >= 4) return 'Perspective';
+    if (modelSelect.value === 'homography' && count >= 6) return 'Homography';
+    if (modelSelect.value === 'auto' && count >= 6) return 'Guided auto';
     if (count === 3) return 'Affine';
     if (count === 2) return 'Rotation + scale';
     return 'Translation';
@@ -108,10 +109,14 @@ function renderPairList() {
     ) {
         const accepted = transform.inlier_mask.filter(Boolean).length;
         const outliers = transform.inlier_mask.length - accepted;
+        const status = transform.fit_status
+            ? `, ${transform.fit_status}`
+            : '';
         quality.textContent = (
             `${transform.model}: RMS ${transform.rms_error_px.toFixed(2)} px, ` +
             `max ${transform.max_error_px.toFixed(2)} px, ` +
-            `${accepted} used, ${outliers} model outlier(s)`
+            `${accepted} used, ${outliers} model outlier(s)${status}` +
+            (transform.fit_message ? ` — ${transform.fit_message}` : '')
         );
     } else {
         quality.textContent = `${pointPairs.length} point pair(s) collected`;
@@ -917,6 +922,36 @@ document.getElementById('reject').addEventListener('click', () => {
 });
 document.getElementById('undo').addEventListener('click', () => {
     runAction('/api/alignment/undo', 'Last accepted alignment undone.', true);
+});
+document.getElementById('download-diagnostics').addEventListener('click', async () => {
+    try {
+        const response = await fetch('/api/alignment/diagnostics', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                model: modelSelect.value,
+                reference_points: pointPairs.map(pair => pair.reference),
+                target_points: pointPairs.map(pair => pair.target)
+            })
+        });
+
+        if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.error || `Request failed: ${response.status}`);
+        }
+
+        const blob = await response.blob();
+        const disposition = response.headers.get('Content-Disposition') || '';
+        const match = disposition.match(/filename="([^"]+)"/);
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = match?.[1] || 'alignment-diagnostics.zip';
+        link.click();
+        URL.revokeObjectURL(link.href);
+        showMessage('Alignment diagnostics downloaded.');
+    } catch (error) {
+        showMessage(error.message, true);
+    }
 });
 document.getElementById('reset').addEventListener('click', () => {
     if (window.confirm('Clear every accepted and pending alignment?')) {

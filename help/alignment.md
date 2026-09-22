@@ -19,10 +19,9 @@ runtime alignment because the old pixel coordinates are no longer valid.
 
 ## Alignment models
 
-**Precision auto — 6–12 point pairs** is the recommended mode for a flat test
-chart. It robustly fits similarity, affine, and homography candidates, rejects
-isolated bad pairs, and selects the simplest model that meets the residual
-error threshold.
+**Guided auto** progresses from rotate/scale to affine, and considers a
+homography only after six pairs. It selects the simplest model that materially
+improves the fit. It never uses a four-point exact homography.
 
 Manual model choices remain available:
 
@@ -30,12 +29,11 @@ Manual model choices remain available:
   frame sizes.
 - **Rotate + scale — 2–12 pairs:** adds arbitrary in-plane rotation and uniform
   scale.
-- **Stretch + skew — 3–12 pairs:** adds independent directional stretch and
-  shear without perspective.
-- **Perspective / homography — 4–12 pairs:** these are the same 3x3 projective
-  transform. It also corrects planar keystone differences. Four pairs permit
-  preview and acceptance; six or more are strongly recommended so incorrect
-  correspondences can be detected.
+- **Quick affine — 3–12 pairs:** adds independent directional stretch and
+  shear without perspective. The model stays locked. With three to five pairs,
+  every pair is used and none is labeled an outlier.
+- **Planar precision — 6–12 pairs:** deliberately fits a homography for a flat
+  subject plane. Six pairs are required; outlier detection begins at eight.
 
 Use well-defined features that are visible in both spectral bands. Spread the
 points widely across the common field of view. For Perspective, put them near
@@ -46,7 +44,7 @@ four corners of the useful subject plane; do not place them on one line.
 1. Confirm that both cameras have green status dots on the main page.
 2. Select the fixed camera under **Align to** and the camera that should move
    under **Transform**.
-3. Open **Alignment**, leave **Precision auto** selected, and choose **Freeze
+3. Open **Alignment**, leave **Guided auto** selected, and choose **Freeze
    all running cameras**.
 4. Review the displayed timestamp skew. Keep the scene still when cameras are
    not hardware-synchronized.
@@ -55,9 +53,9 @@ four corners of the useful subject plane; do not place them on one line.
    repeated chart patterns from establishing the wrong initial pose.
 6. After two anchors, optionally enable **Auto-find after 2 anchors**. Verify
    every suggested numbered marker; correct or remove any wrong target.
-7. Collect at least six widely separated pairs in Precision auto. Four is the
-   mathematical minimum for homography but cannot expose a wrong pair; six to
-   twelve pairs permit meaningful rejection.
+7. For a fast setup, select **Quick affine** and collect three or more widely
+   separated pairs. For a flat chart with keystone differences, select
+   **Planar precision** and collect six to twelve pairs.
 8. Inspect the model, RMS/max error, and per-pair residuals above the images.
    A red pair was rejected. Use **Correct target** for any numbered pair and
    click its correct target location, or remove it without restarting.
@@ -70,6 +68,11 @@ four corners of the useful subject plane; do not place them on one line.
    reference-canvas pixels if needed.
 12. Choose **Accept**, **Reject**, or **Undo accepted**.
 13. Select another target and repeat. The reference remains fixed.
+
+The cursor remains a precise crosshair while selecting, including when zoomed.
+It changes to a move cursor only after a pan drag begins. Use **Download
+diagnostics** to save the frozen frames, overlay, points, matrix, residuals,
+frame metadata, and orientation state in one ZIP file.
 
 The automatic matcher becomes available after two manual anchors. It downsamples
 the display frames, converts them to gradient structure, and searches the target
@@ -87,7 +90,7 @@ after 2 anchors** for fully manual point pairing.
 If manually selected pairs are consistent under a more flexible transform than
 the selected model, the page reports a model mismatch rather than labeling the
 points as bad. For example, correct points from a keystoned chart may require
-**Perspective / homography** even though **Rotate + scale** cannot fit them.
+**Planar precision** even though **Rotate + scale** cannot fit them.
 Changing the Alignment model preserves all completed points, their order, and
 manual corrections, then immediately refits them with the new model. A **model
 outlier** means the selected transform cannot explain that pair within the

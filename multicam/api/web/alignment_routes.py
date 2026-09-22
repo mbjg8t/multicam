@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import io
+import json
+import zipfile
+from datetime import datetime, timezone
 
 from flask import Blueprint, Response, jsonify, render_template, request
 from PIL import Image
@@ -48,6 +51,8 @@ def create_alignment_blueprint(
             "inlier_mask": transform.inlier_mask,
             "rms_error_px": transform.rms_error_px,
             "max_error_px": transform.max_error_px,
+            "fit_status": transform.fit_status,
+            "fit_message": transform.fit_message,
             "created_at": transform.created_at,
         }
 
@@ -343,6 +348,35 @@ def create_alignment_blueprint(
         Image.fromarray(image).save(buffer, format="JPEG", quality=90)
         return Response(buffer.getvalue(), mimetype="image/jpeg")
 
+    def jpeg_bytes(image):
+        buffer = io.BytesIO()
+        Image.fromarray(image).save(buffer, format="JPEG", quality=95)
+        return buffer.getvalue()
+
+    def render_preview(reference_id, target_id):
+        reference = alignment_service.get_frozen(reference_id)
+        target = alignment_service.get_frozen(target_id)
+
+        if reference is None or target is None:
+            raise ValueError("Freeze frames first")
+
+        preview_state = ViewState(layers=[
+            CameraLayer(camera_id=reference_id, opacity=1.0, z_order=0),
+            CameraLayer(camera_id=target_id, opacity=0.5, z_order=1),
+        ])
+        image = compositor.compose(
+            {reference_id: reference, target_id: target},
+            preview_state,
+            registrations=alignment_state.effective_transforms(),
+            orientations=orientation_store.snapshot(),
+            reference_camera_id=reference_id,
+        )
+
+        if image is None:
+            raise ValueError("Unable to render preview")
+
+        return image
+
     @blueprint.route("/alignment/frame/<path:camera_id>")
     def alignment_frame(camera_id):
         frame = alignment_service.get_frozen(camera_id)
@@ -369,27 +403,92 @@ def create_alignment_blueprint(
         if reference_id is None or target_id is None:
             return jsonify({"error": "No alignment selection"}), 400
 
+        try:
+            image = render_preview(reference_id, target_id)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        return jpeg_response(image)
+
+    @blueprint.route("/api/alignment/diagnostics", methods=["POST"])
+    def alignment_diagnostics():
+        current = alignment_state.get()
+        reference_id = current.reference_camera_id
+        target_id = current.target_camera_id
+
+        if reference_id is None or target_id is None:
+            return jsonify({"error": "No alignment selection"}), 400
+
         reference = alignment_service.get_frozen(reference_id)
         target = alignment_service.get_frozen(target_id)
 
         if reference is None or target is None:
-            return jsonify({"error": "Freeze frames first"}), 404
+            return jsonify({"error": "Freeze frames first"}), 400
 
-        preview_state = ViewState(layers=[
-            CameraLayer(camera_id=reference_id, opacity=1.0, z_order=0),
-            CameraLayer(camera_id=target_id, opacity=0.5, z_order=1),
-        ])
-        image = compositor.compose(
-            {reference_id: reference, target_id: target},
-            preview_state,
-            registrations=alignment_state.effective_transforms(),
-            orientations=orientation_store.snapshot(),
-            reference_camera_id=reference_id,
+        data = request.get_json(silent=True) or {}
+        draft = current.drafts.get(target_id)
+        accepted = current.transforms.get(target_id)
+        report = {
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "reference_camera_id": reference_id,
+            "target_camera_id": target_id,
+            "requested_model": data.get("model"),
+            "reference_points": data.get("reference_points", []),
+            "target_points": data.get("target_points", []),
+            "draft_transform": serialize_transform(draft),
+            "accepted_transform": serialize_transform(accepted),
+            "orientations": {
+                camera_id: {
+                    "rotation_deg": orientation.rotation_deg,
+                    "flip_horizontal": orientation.flip_horizontal,
+                    "flip_vertical": orientation.flip_vertical,
+                }
+                for camera_id, orientation in orientation_store.snapshot().items()
+                if camera_id in (reference_id, target_id)
+            },
+            "frozen_frames": [
+                {
+                    "camera_id": item.camera_id,
+                    "timestamp_ns": item.timestamp_ns,
+                    "monotonic_timestamp_ns": item.monotonic_timestamp_ns,
+                    "width": item.width,
+                    "height": item.height,
+                    "pixel_format": item.pixel_format,
+                    "frame_number": item.frame_number,
+                }
+                for item in alignment_service.frozen_info()
+                if item.camera_id in (reference_id, target_id)
+            ],
+        }
+
+        try:
+            reference_image = compositor.orient_display_image(
+                reference.image,
+                orientation_store.get(reference_id),
+            )
+            target_image = compositor.orient_display_image(
+                target.image,
+                orientation_store.get(target_id),
+            )
+            preview_image = render_preview(reference_id, target_id)
+        except (TypeError, ValueError) as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as bundle:
+            bundle.writestr(
+                "alignment.json",
+                json.dumps(report, indent=2, sort_keys=True),
+            )
+            bundle.writestr("reference.jpg", jpeg_bytes(reference_image))
+            bundle.writestr("target.jpg", jpeg_bytes(target_image))
+            bundle.writestr("overlay-preview.jpg", jpeg_bytes(preview_image))
+
+        filename = datetime.now().strftime("alignment-diagnostics-%Y%m%d-%H%M%S.zip")
+        return Response(
+            archive.getvalue(),
+            mimetype="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
-
-        if image is None:
-            return jsonify({"error": "Unable to render preview"}), 400
-
-        return jpeg_response(image)
 
     return blueprint

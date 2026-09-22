@@ -72,13 +72,14 @@ Open `http://<pi-address>:5000` from another computer on the same network.
 The main page shows every discovered camera and whether it is streaming with
 frames. Choose **Align to** (the fixed reference) and **Transform** (the camera
 that will move), then open **Alignment**. Freeze the running cameras and use
-**Precision auto** to collect 6–12 widely separated features in the reference
-image. Multicam searches the target using edge structure and chooses the
-simplest similarity, affine, or perspective model that meets the measured fit.
-It reports per-pair residuals, rejects isolated bad matches, and creates a 50%
-overlay draft. Use cursor-centered mouse-wheel zoom up to 12× or zoom presets,
-then pan for native-pixel point placement. Correct or remove any numbered pair,
-add points, nudge the final transform, and accept it after inspection. See
+**Quick affine** for a stable three-point setup, or **Planar precision** with
+6–12 widely separated features for a flat subject with perspective differences.
+Guided auto chooses the simplest materially better model and never promotes a
+four-point fit to an exact homography. It reports per-pair residuals and creates
+a 50% overlay draft. Use cursor-centered mouse-wheel zoom up to 12× or zoom
+presets, then pan with a precise selection crosshair. Correct or remove any
+numbered pair, download diagnostics if needed, nudge the transform, and accept
+it after inspection. See
 [`help/alignment.md`](help/alignment.md) for the complete workflow and current
 limitations.
 

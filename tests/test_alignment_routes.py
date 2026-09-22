@@ -1,4 +1,7 @@
 from types import SimpleNamespace
+import io
+import json
+import zipfile
 
 from flask import Flask
 import numpy as np
@@ -153,6 +156,24 @@ def test_guided_alignment_api_workflow(tmp_path):
     preview = client.get("/alignment/preview")
     assert preview.status_code == 200
     assert preview.mimetype == "image/jpeg"
+
+    diagnostics = client.post("/api/alignment/diagnostics", json={
+        "model": "similarity",
+        "reference_points": [{"x": 20, "y": 10}, {"x": 20, "y": 35}],
+        "target_points": [{"x": 5, "y": 5}, {"x": 20, "y": 5}],
+    })
+    assert diagnostics.status_code == 200
+    assert diagnostics.mimetype == "application/zip"
+    with zipfile.ZipFile(io.BytesIO(diagnostics.data)) as bundle:
+        assert set(bundle.namelist()) == {
+            "alignment.json",
+            "reference.jpg",
+            "target.jpg",
+            "overlay-preview.jpg",
+        }
+        report = json.loads(bundle.read("alignment.json"))
+        assert report["requested_model"] == "similarity"
+        assert report["draft_transform"]["fit_status"] == "adjusted"
 
     response = client.post("/api/alignment/accept")
     target = next(

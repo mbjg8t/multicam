@@ -23,11 +23,11 @@
         <label>
             Alignment model
             <select id="alignment-model">
-                <option value="auto" selected>Precision auto — 6–12 pairs</option>
+                <option value="auto" selected>Guided auto — simplest stable model</option>
                 <option value="translation">Shift — 1 pair</option>
                 <option value="similarity">Rotate + scale — 2–12 pairs</option>
-                <option value="affine">Stretch + skew — 3–12 pairs</option>
-                <option value="homography">Perspective / homography — 4–12 pairs (6 recommended)</option>
+                <option value="affine">Quick affine — 3–12 pairs, model locked</option>
+                <option value="homography">Planar precision — homography, 6–12 pairs</option>
             </select>
         </label>
 
@@ -105,6 +105,7 @@
             <button id="accept" disabled>Accept</button>
             <button id="reject" disabled>Reject</button>
             <button id="undo" disabled>Undo accepted</button>
+            <button id="download-diagnostics">Download diagnostics</button>
             <button id="reset">Reset all alignments</button>
         </div>
     </footer>

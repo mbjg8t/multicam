@@ -160,12 +160,12 @@ main {
 }
 
 .image-stage.zoomed {
-    cursor: grab;
+    cursor: crosshair;
     touch-action: none;
 }
 
 .image-stage.panning {
-    cursor: grabbing;
+    cursor: move;
 }
 
 .image-stage img {

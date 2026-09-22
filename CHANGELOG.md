@@ -53,6 +53,13 @@
 
 ### Guided camera alignment
 
+- Stabilized progressive fitting: four- and five-point affine fits use every
+  pair, and guided auto does not consider homography before six pairs.
+- Split model-locked **Quick affine** from deliberate **Planar precision**
+  homography; robust outlier detection now waits for genuine redundancy.
+- Added fit-status guidance, a precise crosshair while zoomed, and downloadable
+  diagnostics with frozen frames, overlay, points, matrices, and residuals.
+
 - Added a compact main-window camera strip with stream and alignment status.
 - Added explicit reference-camera and transformed-target selection.
 - Added frozen snapshots of all running cameras with timestamp-skew reporting.

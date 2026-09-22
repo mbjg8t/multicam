@@ -41,12 +41,14 @@ def test_alignment_page_renders_from_template():
     assert b'id="alignment-model"' in response.data
     assert b'id="clear-points"' in response.data
     assert b'id="fit-quality"' in response.data
-    assert b"Precision auto" in response.data
+    assert b"Guided auto" in response.data
+    assert b"Planar precision" in response.data
+    assert b'id="download-diagnostics"' in response.data
     assert b'id="selection-zoom"' in response.data
     assert b'id="reset-zoom"' in response.data
     assert b'Auto-find after 2 anchors' in response.data
     assert b'id="auto-match" type="checkbox" disabled' in response.data
-    assert '4–12 pairs (6 recommended)'.encode() in response.data
+    assert 'homography, 6–12 pairs'.encode() in response.data
 
 
 def test_focus_page_renders_from_template():

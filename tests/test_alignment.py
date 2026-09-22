@@ -164,7 +164,7 @@ def test_two_point_alignment_solves_rotation_scale_and_translation():
     assert state.get().drafts["target"] == transform
 
 
-def test_four_point_alignment_solves_perspective_transform():
+def test_six_point_planar_alignment_solves_perspective_transform():
     service, _ = alignment_service_with_large_frames()
     expected = np.asarray((
         (1.2, 0.1, 10.0),
@@ -176,6 +176,8 @@ def test_four_point_alignment_solves_perspective_transform():
         (950.0, 60.0),
         (900.0, 850.0),
         (80.0, 900.0),
+        (400.0, 300.0),
+        (700.0, 650.0),
     ]
 
     def project(point):
@@ -186,6 +188,7 @@ def test_four_point_alignment_solves_perspective_transform():
     transform = service.set_point_pairs(
         reference_points=reference_points,
         target_points=source_points,
+        requested_model="homography",
     )
 
     assert transform.model == "homography"
@@ -195,6 +198,60 @@ def test_four_point_alignment_solves_perspective_transform():
         abs=1e-8,
     )
 
+
+def test_four_point_auto_stays_affine_and_uses_every_pair():
+    service, _ = alignment_service_with_large_frames()
+    source_points = [
+        (50.0, 50.0),
+        (950.0, 60.0),
+        (900.0, 850.0),
+        (80.0, 900.0),
+    ]
+    reference_points = [
+        (80.0, 90.0),
+        (970.0, 80.0),
+        (820.0, 780.0),
+        (130.0, 850.0),
+    ]
+
+    transform = service.set_point_pairs(
+        reference_points=reference_points,
+        target_points=source_points,
+        requested_model="auto",
+    )
+
+    assert transform.model == "affine"
+    assert transform.inlier_mask == (True, True, True, True)
+    assert transform.fit_status == "stable"
+    assert transform.rms_error_px > 0.0
+
+
+def test_four_point_quick_affine_does_not_reject_prior_pair():
+    service, _ = alignment_service_with_large_frames()
+    source_points = [
+        (100.0, 100.0),
+        (900.0, 100.0),
+        (900.0, 800.0),
+        (100.0, 800.0),
+    ]
+    reference_points = [
+        (120.0, 130.0),
+        (940.0, 110.0),
+        (850.0, 760.0),
+        (180.0, 820.0),
+    ]
+
+    transform = service.set_point_pairs(
+        reference_points=reference_points,
+        target_points=source_points,
+        requested_model="affine",
+    )
+
+    assert transform.model == "affine"
+    assert transform.inlier_mask == (True, True, True, True)
+    assert transform.fit_message == (
+        "All pairs are used; add pairs before outlier detection."
+    )
 
 def test_multi_point_alignment_rejects_degenerate_layout():
     service, _ = alignment_service_with_large_frames()
