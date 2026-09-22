@@ -3,9 +3,9 @@ from __future__ import annotations
 import logging
 import io
 import os
+import socket
 import time
 import atexit
-from pathlib import Path
 
 from flask import Flask, Response, jsonify, render_template, request
 from PIL import Image
@@ -81,9 +81,6 @@ pi_config_path = os.environ.get(
 
 provisioning_apply_enabled = (
     os.environ.get("MULTICAM_ALLOW_PROVISIONING_WRITE") == "1"
-    and "MULTICAM_PI_CONFIG" in os.environ
-    and Path(pi_config_path).resolve()
-        != Path("/boot/firmware/config.txt").resolve()
 )
 
 provisioning_service = CameraProvisioningService(
@@ -879,9 +876,12 @@ def hardware_apply_api():
         return jsonify({
             "success": False,
             "error": (
-                "Provisioning writes are disabled. "
-                "Test writes require an alternate MULTICAM_PI_CONFIG "
-                "and MULTICAM_ALLOW_PROVISIONING_WRITE=1."
+                "The overlay plan is ready, but provisioning writes are "
+                "disabled for this startup. Set "
+                "MULTICAM_ALLOW_PROVISIONING_WRITE=1 and ensure the selected "
+                "configuration file is writable. Normal Pi users will need "
+                "the narrowly privileged Multicam writer in the next setup "
+                "step; do not run the entire web application as root."
             ),
         }), 403
 
@@ -1069,13 +1069,79 @@ def streams_api():
     return jsonify(result)
 
 
+def discover_local_ipv4_addresses() -> list[str]:
+    """Return usable local IPv4 addresses without platform shell commands."""
+    addresses: set[str] = set()
+
+    try:
+        for item in socket.getaddrinfo(
+            socket.gethostname(),
+            None,
+            family=socket.AF_INET,
+        ):
+            addresses.add(item[4][0])
+    except OSError:
+        pass
+
+    # UDP connect selects the interface that would carry normal LAN traffic;
+    # it does not send a packet or require the destination to answer.
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        probe.connect(("192.0.2.1", 9))
+        addresses.add(probe.getsockname()[0])
+    except OSError:
+        pass
+    finally:
+        probe.close()
+
+    return sorted(
+        address
+        for address in addresses
+        if address and not address.startswith("127.")
+    )
+
+
+def startup_urls(
+    host: str,
+    port: int,
+    local_addresses: list[str] | None = None,
+) -> list[str]:
+    if host not in {"0.0.0.0", "::"}:
+        display_host = (
+            "localhost"
+            if host in {"127.0.0.1", "::1"}
+            else host
+        )
+        return [f"http://{display_host}:{port}"]
+
+    addresses = local_addresses
+    if addresses is None:
+        addresses = discover_local_ipv4_addresses()
+    return [
+        f"http://localhost:{port}",
+        *(f"http://{address}:{port}" for address in addresses),
+    ]
+
+
+def print_startup_addresses(host: str, port: int) -> None:
+    urls = startup_urls(host, port)
+    print("\nMulticam is ready. Open one of these addresses:", flush=True)
+    for url in urls:
+        print(f"  {url}", flush=True)
+    print(f"Listening on {host}:{port}\n", flush=True)
+
+
 def main():
     initialize()
 
+    host = os.environ.get("MULTICAM_HOST", "0.0.0.0")
+    port = int(os.environ.get("MULTICAM_PORT", "5000"))
+    print_startup_addresses(host, port)
+
     try:
         app.run(
-            host="0.0.0.0",
-            port=5000,
+            host=host,
+            port=port,
             threaded=True,
         )
     finally:

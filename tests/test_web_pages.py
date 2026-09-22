@@ -1,4 +1,4 @@
-from multicam.api.web.app import app
+from multicam.api.web.app import app, startup_urls
 
 
 def test_main_page_renders_from_template():
@@ -128,6 +128,31 @@ def test_camera_settings_script_includes_preview_resolution_control():
 
     assert response.status_code == 200
     assert b"preview_resolution" in response.data
+
+
+def test_camera_hardware_selector_is_stable_and_auto_plans():
+    client = app.test_client()
+    response = client.get("/static/js/cameras.js")
+
+    assert response.status_code == 200
+    assert b"hardwarePortStructureKey" in response.data
+    assert b"planHardwareConfiguration();" in response.data
+    assert b"Apply (Setup Required)" in response.data
+
+
+def test_startup_urls_include_local_and_lan_addresses():
+    assert startup_urls(
+        "0.0.0.0",
+        5000,
+        ["192.168.1.42", "10.0.0.8"],
+    ) == [
+        "http://localhost:5000",
+        "http://192.168.1.42:5000",
+        "http://10.0.0.8:5000",
+    ]
+    assert startup_urls("127.0.0.1", 5050) == [
+        "http://localhost:5050"
+    ]
 
 
 def test_alignment_script_includes_auto_match_workflow():

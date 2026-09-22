@@ -167,8 +167,8 @@ camera was detected but the corresponding boot overlay is missing.
 
 The provisioning service can determine required changes, preserve unrelated
 settings, create a timestamped backup, write a reviewed overlay set, and verify
-the result. Boot writes are disabled in a normal web-app startup. The current
-write guard is intended for testing against an alternate config file:
+the result. Boot writes are disabled in a normal web-app startup. The write
+guard can be tested safely against an alternate config file:
 
 ```bash
 clear
@@ -179,7 +179,12 @@ multicam
 
 A future narrowly privileged system helper should own real
 `/boot/firmware/config.txt` writes and reboot requests. The web process should
-not run as root.
+not run as root. Setting `MULTICAM_ALLOW_PROVISIONING_WRITE=1` removes the
+application guard, but does not bypass operating-system file permissions.
+
+When Multicam starts, it prints the local and detected LAN addresses, including
+the configured port. `MULTICAM_HOST` and `MULTICAM_PORT` can override the
+defaults of `0.0.0.0` and `5000`.
 
 After changing an overlay:
 

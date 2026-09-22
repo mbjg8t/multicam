@@ -7,6 +7,8 @@ let lastLayerRenderKey = null;
 let hardwareState = null;
 let hardwarePortSelections = null;
 let plannedHardwareChanges = null;
+let hardwarePortStructureKey = null;
+let hardwarePlanSequence = 0;
 
 
 async function api(url, options = {}) {
@@ -74,6 +76,7 @@ function selectedPortPayload() {
 
 
 async function planHardwareConfiguration() {
+    const sequence = ++hardwarePlanSequence;
     const proposed = document.getElementById('hardwareProposed');
     proposed.textContent = 'Building configuration proposal...';
 
@@ -83,9 +86,11 @@ async function planHardwareConfiguration() {
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(selectedPortPayload())
         });
+        if (sequence !== hardwarePlanSequence) return;
         plannedHardwareChanges = plan.changes;
         renderHardwareProposal();
     } catch (error) {
+        if (sequence !== hardwarePlanSequence) return;
         plannedHardwareChanges = null;
         proposed.className = 'camera-info stream-error';
         proposed.textContent = error.message;
@@ -98,6 +103,7 @@ function updateHardwarePort(portId, sensorId) {
     hardwarePortSelections[portId] = sensorId || null;
     plannedHardwareChanges = null;
     renderHardwareProposal();
+    planHardwareConfiguration();
 }
 
 
@@ -112,6 +118,33 @@ function renderHardwarePorts() {
         );
     }
 
+    const structureKey = JSON.stringify({
+        ports: ports.map(port => ({
+            id: port.id,
+            name: port.name,
+            description: port.description
+        })),
+        sensors: sensors.map(sensor => ({
+            id: sensor.id,
+            name: sensor.name
+        }))
+    });
+
+    if (structureKey === hardwarePortStructureKey) {
+        for (const port of ports) {
+            const runtime = document.getElementById(
+                `hardware-runtime-${port.id}`
+            );
+            if (runtime) {
+                runtime.textContent = port.runtime_model
+                    ? `Running now: ${port.runtime_model}`
+                    : 'No runtime camera currently matched to this port';
+            }
+        }
+        return;
+    }
+
+    hardwarePortStructureKey = structureKey;
     container.replaceChildren();
     for (const port of ports) {
         const card = document.createElement('div');
@@ -146,6 +179,7 @@ function renderHardwarePorts() {
         card.append(select);
 
         const runtime = document.createElement('div');
+        runtime.id = `hardware-runtime-${port.id}`;
         runtime.className = 'camera-info';
         runtime.textContent = port.runtime_model
             ? `Running now: ${port.runtime_model}`
@@ -163,12 +197,13 @@ function renderHardwareProposal() {
 
     proposed.className = 'camera-info';
     proposed.replaceChildren();
-    applyButton.disabled = !(
-        hardwareState?.apply_enabled && changes.length > 0
-    );
+    applyButton.disabled = changes.length === 0;
+    applyButton.textContent = hardwareState?.apply_enabled
+        ? 'Apply Selected Overlays'
+        : 'Apply (Setup Required)';
     applyButton.title = hardwareState?.apply_enabled
-        ? ''
-        : 'Provisioning writes are disabled for this startup.';
+        ? 'Write the reviewed overlay configuration.'
+        : 'Click for instructions to enable guarded configuration writes.';
 
     if (plannedHardwareChanges === null) {
         proposed.textContent =
@@ -242,6 +277,7 @@ async function applyHardwareConfiguration() {
         hardwareState = await api('/api/hardware');
         hardwarePortSelections = null;
         plannedHardwareChanges = null;
+        hardwarePortStructureKey = null;
         renderHardware();
 
         // renderHardware clears/rebuilds the hardware presentation,

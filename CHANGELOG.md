@@ -11,6 +11,10 @@
   of unrelated boot settings, read-back verification, and separate reboot state.
 - Prefer live device-tree topology over runtime camera numbers when correlating
   physical ports, including identical sensor models on both connectors.
+- Keep camera selectors mounted during status refreshes so an open pull-down
+  stays open, automatically rebuild plans after selection, and distinguish a
+  ready plan from unavailable boot-write permission.
+- Print usable local/LAN URLs and the configured port at server startup.
 
 ## Multicam 1.0 development
 
