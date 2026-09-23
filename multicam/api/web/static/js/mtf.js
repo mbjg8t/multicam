@@ -115,6 +115,19 @@ function setTool(nextTool) {
     }
 }
 
+function updateAnalyzeAvailability() {
+    const mode = document.getElementById('mode').value;
+    const rectangularReady = roi && roi[2] - roi[0] >= 24 && roi[3] - roi[1] >= 24;
+    const quadrilateralReady = mode === 'usaf_bar' && outline.length === 4;
+    analyze.disabled = !(rectangularReady || quadrilateralReady);
+}
+
+function clearOutline() {
+    outline = [];
+    renderOutline();
+    updateAnalyzeAvailability();
+}
+
 async function api(url, options) {
     const response = await fetch(url, options);
     const data = await response.json();
@@ -151,6 +164,8 @@ document.getElementById('freeze').addEventListener('click', async () => {
         const quality = result.capture_quality === 'maximum_sensor_resolution'
             ? 'maximum sensor resolution'
             : 'live-frame fallback';
+        document.getElementById('capture-info').textContent =
+            `${result.width} × ${result.height} — ${quality}`;
         status(`Frozen ${result.width} × ${result.height} at ${quality}. Select one measurement feature.`);
     } catch (error) { status(error.message, true); }
 });
@@ -197,11 +212,13 @@ stage.addEventListener('pointerdown', event => {
             y: Math.round(point.y * frame.naturalHeight / point.rect.height)
         });
         renderOutline();
+        updateAnalyzeAvailability();
         status(outline.length === 4
             ? 'Target outline complete. Switch to ROI tool and select one measurement feature.'
             : `Target outline: click corner ${outline.length + 1} of 4 clockwise.`);
         return;
     }
+    if (outline.length) clearOutline();
     start = {x: point.x, y: point.y};
     stage.setPointerCapture(event.pointerId);
 });
@@ -277,10 +294,23 @@ stage.addEventListener('pointerleave', () => {
 });
 
 roiTool.addEventListener('click', () => setTool('roi'));
-outlineTool.addEventListener('click', () => setTool('outline'));
+outlineTool.addEventListener('click', () => {
+    if (tool === 'outline' && outline.length) {
+        clearOutline();
+        status('Target outline cleared. Click four corners clockwise to start again.');
+        return;
+    }
+    setTool('outline');
+});
 panTool.addEventListener('click', () => setTool('pan'));
 document.getElementById('clear-outline').addEventListener('click', () => {
-    outline = []; renderOutline(); status('Target outline cleared.');
+    clearOutline(); status('Target outline cleared.');
+});
+document.getElementById('mode').addEventListener('change', () => {
+    updateAnalyzeAvailability();
+    if (outline.length === 4 && document.getElementById('mode').value === 'slanted_edge') {
+        status('Four-corner ROIs are for USAF analysis. Draw a rectangular ROI around one clean edge.');
+    }
 });
 document.getElementById('zoom-in').addEventListener('click', () => setZoom(zoom * 1.35));
 document.getElementById('zoom-out').addEventListener('click', () => setZoom(zoom / 1.35));
@@ -337,7 +367,8 @@ analyze.addEventListener('click', async () => {
                 camera_id: camera.value,
                 mode: document.getElementById('mode').value,
                 roi,
-                roi_space: 'pixels'
+                roi_space: 'pixels',
+                quadrilateral: outline.length === 4 ? outline.map(point => [point.x, point.y]) : null
             })
         });
         if (result.mode === 'slanted_edge') {
@@ -357,7 +388,9 @@ analyze.addEventListener('click', async () => {
                 metric('Orientation', result.orientation) + metric('Valid', result.valid ? 'Yes' : 'Review');
             drawCurve(result.profile.map((_, i) => i), result.profile, 'Mean bar profile');
             status(
-                result.warning || 'USAF / tri-bar measurement complete.',
+                result.warning || (result.perspective_rectified
+                    ? 'Perspective-corrected USAF measurement complete.'
+                    : 'USAF / tri-bar measurement complete.'),
                 Boolean(result.warning)
             );
         }

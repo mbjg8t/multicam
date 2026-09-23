@@ -65,9 +65,10 @@ def create_mtf_blueprint(*, manager, broker, mtf_service, compositor):
         try:
             result = mtf_service.analyze(
                 str(data["camera_id"]),
-                tuple(data["roi"]),
+                tuple(data.get("roi") or (0, 0, 1, 1)),
                 str(data["mode"]),
                 str(data.get("roi_space", "normalized")),
+                quadrilateral=data.get("quadrilateral"),
             )
         except (KeyError, TypeError, ValueError) as exc:
             return jsonify({"error": str(exc)}), 400

@@ -88,6 +88,7 @@ class MtfService:
         roi: tuple[float, float, float, float],
         mode: str,
         roi_space: str = "normalized",
+        quadrilateral: list[tuple[float, float]] | None = None,
     ) -> dict[str, Any]:
         frame = self.get_frozen(camera_id)
         if frame is None:
@@ -95,8 +96,19 @@ class MtfService:
 
         oriented = self.get_oriented_image(camera_id)
         gray = self._gray(oriented)
-        x0, y0, x1, y1 = self._roi_pixels(roi, gray.shape, roi_space)
-        crop = gray[y0:y1, x0:x1]
+        if quadrilateral is not None:
+            if mode != "usaf_bar":
+                raise ValueError(
+                    "Four-corner analysis is supported for USAF bars; use a "
+                    "rectangular ROI for slanted-edge MTF"
+                )
+            crop, bounds = self._quadrilateral_crop(gray, quadrilateral)
+            x0, y0, x1, y1 = bounds
+        else:
+            x0, y0, x1, y1 = self._roi_pixels(
+                roi, gray.shape, roi_space
+            )
+            crop = gray[y0:y1, x0:x1]
         if mode == "slanted_edge":
             result = self._slanted_edge(crop)
         elif mode == "usaf_bar":
@@ -112,8 +124,64 @@ class MtfService:
             "frame_height": int(gray.shape[0]),
             "frame_number": frame.frame_number,
             "timestamp_ns": frame.timestamp_ns,
+            "perspective_rectified": quadrilateral is not None,
         })
         return result
+
+    @staticmethod
+    def _quadrilateral_crop(gray, points):
+        if len(points) != 4:
+            raise ValueError("Four-corner ROI requires exactly four points")
+        quad = np.asarray(points, dtype=np.float64)
+        if quad.shape != (4, 2) or not np.all(np.isfinite(quad)):
+            raise ValueError("Invalid four-corner ROI")
+
+        height, width = gray.shape
+        quad[:, 0] = np.clip(quad[:, 0], 0, width - 1)
+        quad[:, 1] = np.clip(quad[:, 1], 0, height - 1)
+        top, right, bottom, left = (
+            np.linalg.norm(quad[1] - quad[0]),
+            np.linalg.norm(quad[2] - quad[1]),
+            np.linalg.norm(quad[3] - quad[2]),
+            np.linalg.norm(quad[0] - quad[3]),
+        )
+        output_width = int(round((top + bottom) / 2.0))
+        output_height = int(round((left + right) / 2.0))
+        if output_width < 24 or output_height < 24:
+            raise ValueError("Select a four-corner ROI at least 24 x 24 pixels")
+
+        u = np.linspace(0.0, 1.0, output_width)[None, :]
+        v = np.linspace(0.0, 1.0, output_height)[:, None]
+        x = (
+            (1 - u) * (1 - v) * quad[0, 0]
+            + u * (1 - v) * quad[1, 0]
+            + u * v * quad[2, 0]
+            + (1 - u) * v * quad[3, 0]
+        )
+        y = (
+            (1 - u) * (1 - v) * quad[0, 1]
+            + u * (1 - v) * quad[1, 1]
+            + u * v * quad[2, 1]
+            + (1 - u) * v * quad[3, 1]
+        )
+        x0 = np.floor(x).astype(int)
+        y0 = np.floor(y).astype(int)
+        x1 = np.minimum(x0 + 1, width - 1)
+        y1 = np.minimum(y0 + 1, height - 1)
+        dx, dy = x - x0, y - y0
+        crop = (
+            gray[y0, x0] * (1 - dx) * (1 - dy)
+            + gray[y0, x1] * dx * (1 - dy)
+            + gray[y1, x0] * (1 - dx) * dy
+            + gray[y1, x1] * dx * dy
+        )
+        bounds = (
+            int(np.floor(np.min(quad[:, 0]))),
+            int(np.floor(np.min(quad[:, 1]))),
+            int(np.ceil(np.max(quad[:, 0]))),
+            int(np.ceil(np.max(quad[:, 1]))),
+        )
+        return crop, bounds
 
     def _info(self, frame: Frame) -> MtfFrozenFrame:
         image = self.get_oriented_image(frame.camera_id)

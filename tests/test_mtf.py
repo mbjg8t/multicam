@@ -110,6 +110,38 @@ def test_usaf_bar_reports_modulation_and_frequency():
     )
 
 
+def test_usaf_accepts_four_corner_roi_and_rectifies_it():
+    width = 180
+    bars = np.where((np.arange(width) // 6) % 2, 220.0, 30.0)
+    image = np.tile(bars, (100, 1))
+    service = MtfService(StubBroker(Frame(camera_id="camera", image=image)))
+    service.freeze("camera")
+    result = service.analyze(
+        "camera",
+        (0, 0, 1, 1),
+        "usaf_bar",
+        quadrilateral=[(0, 0), (179, 0), (179, 99), (0, 99)],
+    )
+    assert result["valid"] is True
+    assert result["perspective_rectified"] is True
+    assert result["dominant_frequency_cycles_per_pixel"] == pytest.approx(
+        1 / 12, abs=0.01
+    )
+
+
+def test_slanted_edge_rejects_four_corner_roi():
+    image = synthetic_edge()
+    service = MtfService(StubBroker(Frame(camera_id="camera", image=image)))
+    service.freeze("camera")
+    with pytest.raises(ValueError, match="USAF bars"):
+        service.analyze(
+            "camera",
+            (0, 0, 1, 1),
+            "slanted_edge",
+            quadrilateral=[(0, 0), (159, 0), (159, 159), (0, 159)],
+        )
+
+
 def test_usaf_rejects_whole_target_scale_gradient():
     image = np.tile(np.linspace(20.0, 220.0, 180), (100, 1))
     service = MtfService(StubBroker(Frame(camera_id="camera", image=image)))

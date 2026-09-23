@@ -11,7 +11,9 @@ camera-to-camera alignment are intentionally excluded.
 3. Choose **Freeze raw live frame**. Backends with controlled still capture use
    their maximum sensor resolution; other backends copy the current raw frame.
 4. Optionally choose **4-corner target** and click the chart corners clockwise.
-   This is a framing guide and does not warp the measurement pixels.
+   For USAF analysis, place these corners around one three-bar element. The
+   workbench perspective-corrects that quadrilateral before measuring its bar
+   profile. Click **Clear outline** or click the active tool again to reset it.
 5. Choose **ROI tool** and drag a tight rectangle around one tri-bar element or
    one clean slanted edge. Use the corner handles and zoom controls to refine it.
    Mouse-wheel zoom works over the image; **Zoom / pan** allows drag-to-pan.
@@ -30,6 +32,8 @@ Do not analyze the complete USAF chart. Background gradients and the chart
 boundary overwhelm the individual bar frequency. Likewise, do not place
 multiple chart edges or bar groups in a slanted-edge ROI. The workbench marks
 these common cases for review instead of reporting them as valid measurements.
+Use a rectangular, unwarped ROI for slanted-edge MTF because resampling an edge
+would change the sharpness being measured.
 
 ## Interpretation
 

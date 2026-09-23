@@ -25,6 +25,7 @@
         <section class="image-panel">
             <div class="image-toolbar">
                 <strong>Frozen frame</strong>
+                <span id="capture-info">Not frozen</span>
                 <button id="zoom-out" disabled>−</button>
                 <span id="zoom-label">Fit</span>
                 <button id="zoom-in" disabled>+</button>
@@ -53,8 +54,8 @@
             <canvas id="curve" width="700" height="360"></canvas>
             <p class="note">
                 USAF: select one three-bar element. Slanted edge: select one clean
-                edge with uniform areas on both sides. The four-corner outline is a
-                framing guide only; measurements use the original unwarped pixels.
+                edge with uniform areas on both sides. A four-corner USAF ROI is
+                perspective-corrected before its bar profile is measured.
             </p>
         </section>
     </main>
