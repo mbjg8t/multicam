@@ -14,6 +14,7 @@ camera-to-camera alignment are intentionally excluded.
    This is a framing guide and does not warp the measurement pixels.
 5. Choose **ROI tool** and drag a tight rectangle around one tri-bar element or
    one clean slanted edge. Use the corner handles and zoom controls to refine it.
+   Mouse-wheel zoom works over the image; **Zoom / pan** allows drag-to-pan.
 6. Select the appropriate analysis and choose **Analyze ROI**.
 
 **USAF / tri-bar modulation** reports Michelson modulation and the dominant
@@ -44,3 +45,22 @@ these common cases for review instead of reporting them as valid measurements.
 - The first release uses manual ROIs deliberately. Automatic target detection
   and multi-site spatial reports will be added after this measurement boundary
   is validated in Multicam.
+
+## Algorithm validation checklist
+
+1. **Capture geometry:** Freeze each camera and confirm the status reports
+   `maximum sensor resolution` and the expected sensor width and height.
+2. **USAF repeatability:** Measure the same isolated three-bar element in five
+   new freezes. Dominant frequency should remain within one FFT bin and bar
+   modulation should normally remain within 5% under fixed exposure and focus.
+3. **Slanted-edge repeatability:** Measure the same clean edge five times. Each
+   result should be valid, edge isolation at least 20%, slant 2–20 degrees, and
+   MTF50 normally within 10% under fixed conditions.
+4. **Focus sensitivity:** Record a focused result, then deliberately defocus.
+   MTF50 and fine-element USAF modulation must decrease.
+5. **Scale sensitivity:** Move the chart farther away. Its image-space bar
+   frequency must increase; compare modulation only for the same chart element.
+6. **Spatial check:** Repeat the same feature at image center and four corners.
+   Save the results separately; corner degradation is expected from many lenses.
+7. **Reference check:** Compare a saved frame with the former `pi_camera` MTF
+   implementation or a trusted desktop tool using exactly the same pixel ROI.

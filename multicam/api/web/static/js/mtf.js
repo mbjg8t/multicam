@@ -12,6 +12,7 @@ const chartPolygon = document.getElementById('chart-polygon');
 const chartPointsGroup = document.getElementById('chart-points');
 const roiTool = document.getElementById('roi-tool');
 const outlineTool = document.getElementById('outline-tool');
+const panTool = document.getElementById('pan-tool');
 let roi = null;
 let start = null;
 let resizeHandle = null;
@@ -19,6 +20,7 @@ let tool = 'roi';
 let outline = [];
 let fitWidth = 0;
 let zoom = 1;
+let panStart = null;
 
 const clamp = (value, maximum) => Math.max(0, Math.min(maximum, value));
 
@@ -93,11 +95,24 @@ function setZoom(nextZoom) {
 
 function setTool(nextTool) {
     tool = nextTool;
+    if (tool === 'outline') {
+        roi = null;
+        start = null;
+        resizeHandle = null;
+        renderSelection();
+        analyze.disabled = true;
+    }
     roiTool.classList.toggle('active-tool', tool === 'roi');
     outlineTool.classList.toggle('active-tool', tool === 'outline');
-    status(tool === 'roi'
-        ? 'ROI tool: drag a small measurement region; use its handles to refine it.'
-        : `Target outline: click four chart corners clockwise (${outline.length}/4 selected).`);
+    panTool.classList.toggle('active-tool', tool === 'pan');
+    stage.classList.toggle('pan-tool', tool === 'pan');
+    if (tool === 'roi') {
+        status('ROI tool: drag a small measurement region; use its handles to refine it.');
+    } else if (tool === 'outline') {
+        status(`Target outline: click four chart corners clockwise (${outline.length}/4 selected).`);
+    } else {
+        status('Zoom / pan: drag to move the image and use the mouse wheel to zoom.');
+    }
 }
 
 async function api(url, options) {
@@ -133,7 +148,10 @@ document.getElementById('freeze').addEventListener('click', async () => {
         roi = null; outline = []; start = null; resizeHandle = null;
         selection.style.display = 'none'; analyze.disabled = true;
         frame.src = `/api/mtf/frame/${encodeURIComponent(camera.value)}?t=${Date.now()}`;
-        status(`Frozen ${result.width} × ${result.height} frame. Select one measurement feature.`);
+        const quality = result.capture_quality === 'maximum_sensor_resolution'
+            ? 'maximum sensor resolution'
+            : 'live-frame fallback';
+        status(`Frozen ${result.width} × ${result.height} at ${quality}. Select one measurement feature.`);
     } catch (error) { status(error.message, true); }
 });
 
@@ -145,7 +163,7 @@ frame.addEventListener('load', () => {
         availableHeight / frame.naturalHeight
     );
     fitWidth = Math.round(frame.naturalWidth * scale);
-    ['roi-tool', 'outline-tool', 'zoom-out', 'zoom-in', 'zoom-fit']
+    ['roi-tool', 'outline-tool', 'pan-tool', 'zoom-out', 'zoom-in', 'zoom-fit']
         .forEach(id => { document.getElementById(id).disabled = false; });
     setZoom(1);
     renderOutline();
@@ -155,6 +173,17 @@ stage.addEventListener('pointerdown', event => {
     if (!frame.naturalWidth) return;
     event.preventDefault();
     const point = framePoint(event);
+    if (tool === 'pan') {
+        panStart = {
+            x: event.clientX,
+            y: event.clientY,
+            scrollLeft: viewport.scrollLeft,
+            scrollTop: viewport.scrollTop
+        };
+        stage.classList.add('dragging');
+        stage.setPointerCapture(event.pointerId);
+        return;
+    }
     const handle = event.target.dataset && event.target.dataset.handle;
     if (handle && roi) {
         resizeHandle = handle;
@@ -179,6 +208,12 @@ stage.addEventListener('pointerdown', event => {
 
 stage.addEventListener('pointermove', event => {
     const point = framePoint(event);
+    if (panStart) {
+        event.preventDefault();
+        viewport.scrollLeft = panStart.scrollLeft - (event.clientX - panStart.x);
+        viewport.scrollTop = panStart.scrollTop - (event.clientY - panStart.y);
+        return;
+    }
     Object.assign(crosshairX.style, {
         display: 'block', left: `${frame.offsetLeft}px`,
         top: `${frame.offsetTop + point.y}px`, width: `${point.rect.width}px`
@@ -204,6 +239,11 @@ stage.addEventListener('pointermove', event => {
 });
 
 stage.addEventListener('pointerup', event => {
+    if (panStart) {
+        panStart = null;
+        stage.classList.remove('dragging');
+        return;
+    }
     if (resizeHandle) {
         resizeHandle = null;
         const width = roi[2] - roi[0], height = roi[3] - roi[1];
@@ -226,7 +266,10 @@ stage.addEventListener('pointerup', event => {
     );
 });
 
-stage.addEventListener('pointercancel', () => { start = null; resizeHandle = null; });
+stage.addEventListener('pointercancel', () => {
+    start = null; resizeHandle = null; panStart = null;
+    stage.classList.remove('dragging');
+});
 stage.addEventListener('pointerleave', () => {
     if (!start && !resizeHandle) {
         crosshairX.style.display = 'none'; crosshairY.style.display = 'none';
@@ -235,12 +278,28 @@ stage.addEventListener('pointerleave', () => {
 
 roiTool.addEventListener('click', () => setTool('roi'));
 outlineTool.addEventListener('click', () => setTool('outline'));
+panTool.addEventListener('click', () => setTool('pan'));
 document.getElementById('clear-outline').addEventListener('click', () => {
     outline = []; renderOutline(); status('Target outline cleared.');
 });
 document.getElementById('zoom-in').addEventListener('click', () => setZoom(zoom * 1.35));
 document.getElementById('zoom-out').addEventListener('click', () => setZoom(zoom / 1.35));
 document.getElementById('zoom-fit').addEventListener('click', () => setZoom(1));
+
+viewport.addEventListener('wheel', event => {
+    if (!frame.naturalWidth) return;
+    event.preventDefault();
+    const bounds = viewport.getBoundingClientRect();
+    const anchorX = event.clientX - bounds.left + viewport.scrollLeft;
+    const anchorY = event.clientY - bounds.top + viewport.scrollTop;
+    const oldZoom = zoom;
+    setZoom(zoom * (event.deltaY < 0 ? 1.18 : 1 / 1.18));
+    const ratio = zoom / oldZoom;
+    requestAnimationFrame(() => {
+        viewport.scrollLeft = anchorX * ratio - (event.clientX - bounds.left);
+        viewport.scrollTop = anchorY * ratio - (event.clientY - bounds.top);
+    });
+}, {passive: false});
 
 function metric(label, value) {
     return `<div class="metric">${label}<strong>${value}</strong></div>`;

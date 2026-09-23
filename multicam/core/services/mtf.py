@@ -17,6 +17,7 @@ class MtfFrozenFrame:
     height: int
     timestamp_ns: int
     frame_number: int | None
+    capture_quality: str
 
 
 class MtfService:
@@ -123,6 +124,9 @@ class MtfService:
             height=height,
             timestamp_ns=frame.timestamp_ns,
             frame_number=frame.frame_number,
+            capture_quality=str(
+                frame.metadata.get("capture_quality", "live_frame_fallback")
+            ),
         )
 
     @staticmethod

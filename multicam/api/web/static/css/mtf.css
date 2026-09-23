@@ -14,6 +14,8 @@ h2 { font-size: 16px; margin: 0 0 10px; }
 #zoom-label { min-width: 48px; text-align: center; color: #8bd7ff; }
 #image-viewport { overflow: auto; max-height: calc(100vh - 190px); min-height: 240px; background: #101010; border: 1px solid #333; }
 #stage { position: relative; display: inline-block; padding: 28px; cursor: crosshair; user-select: none; touch-action: none; box-sizing: content-box; }
+#stage.pan-tool { cursor: grab; }
+#stage.pan-tool.dragging { cursor: grabbing; }
 #frame { display: block; max-width: none; -webkit-user-drag: none; user-select: none; }
 .crosshair { display: none; position: absolute; pointer-events: none; z-index: 4; background: rgba(255, 210, 0, .82); }
 #crosshair-x { height: 1px; }

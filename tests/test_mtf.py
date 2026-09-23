@@ -19,6 +19,15 @@ class StubOrientationStore:
         return CameraOrientation(rotation_deg=90)
 
 
+class CalibrationBroker(StubBroker):
+    def capture_calibration_frame(self, camera_id):
+        return Frame(
+            camera_id=camera_id,
+            image=np.zeros((300, 400), dtype=np.uint8),
+            metadata={"capture_quality": "maximum_sensor_resolution"},
+        )
+
+
 def synthetic_edge(size=160, angle_degrees=6.0, sigma=1.2):
     yy, xx = np.mgrid[:size, :size].astype(np.float64)
     slope = np.tan(np.radians(angle_degrees))
@@ -40,6 +49,15 @@ def test_mtf_freeze_copies_raw_frame():
     image[:] = 1000
     assert (info.width, info.height) == (80, 60)
     assert service.get_frozen("camera").image.max() == 0
+    assert info.capture_quality == "live_frame_fallback"
+
+
+def test_mtf_freeze_prefers_maximum_resolution_backend_capture():
+    preview = Frame(camera_id="camera", image=np.zeros((60, 80)))
+    service = MtfService(CalibrationBroker(preview))
+    info = service.freeze("camera")
+    assert (info.width, info.height) == (400, 300)
+    assert info.capture_quality == "maximum_sensor_resolution"
 
 
 def test_pixel_roi_coordinates_are_not_treated_as_normalized():

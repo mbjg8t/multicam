@@ -44,6 +44,7 @@ def create_mtf_blueprint(*, manager, broker, mtf_service, compositor):
             "height": info.height,
             "timestamp_ns": info.timestamp_ns,
             "frame_number": info.frame_number,
+            "capture_quality": info.capture_quality,
         })
 
     @blueprint.route("/api/mtf/frame/<path:camera_id>")
