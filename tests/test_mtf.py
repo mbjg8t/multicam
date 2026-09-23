@@ -110,6 +110,17 @@ def test_usaf_bar_reports_modulation_and_frequency():
     )
 
 
+@pytest.mark.parametrize("left,right", [(0, 180), (2, 175), (5, 171)])
+def test_usaf_frequency_is_stable_when_roi_width_changes(left, right):
+    width = 180
+    bars = np.where((np.arange(width) // 6) % 2, 220.0, 30.0)
+    image = np.tile(bars, (100, 1))
+    result = MtfService._bar_modulation(image[:, left:right])
+    assert result["dominant_frequency_cycles_per_pixel"] == pytest.approx(
+        1 / 12, abs=0.004
+    )
+
+
 def test_usaf_accepts_four_corner_roi_and_rectifies_it():
     width = 180
     bars = np.where((np.arange(width) // 6) % 2, 220.0, 30.0)

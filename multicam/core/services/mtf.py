@@ -388,7 +388,32 @@ class MtfService:
             raise ValueError("Bar ROI is too small")
         spectrum[0] = 0.0
         peak = int(np.argmax(spectrum))
-        cycles_per_pixel = peak / len(profile)
+        fft_cycles_per_pixel = peak / len(profile)
+        # Threshold crossings measure actual bar spacing and are much less
+        # sensitive than an FFT bin to small changes in selected ROI width.
+        kernel_width = max(3, min(9, (len(profile) // 40) | 1))
+        smooth = np.convolve(
+            profile, np.ones(kernel_width) / kernel_width, mode="same"
+        )
+        signs = smooth >= 0.0
+        transition_indices = np.flatnonzero(signs[1:] != signs[:-1])
+        crossings = []
+        for index in transition_indices:
+            y0, y1 = smooth[index:index + 2]
+            if abs(y1 - y0) > 1e-9:
+                crossings.append(index - y0 / (y1 - y0))
+        intervals = np.diff(crossings)
+        if len(intervals) >= 3:
+            median = float(np.median(intervals))
+            consistent = intervals[
+                (intervals >= 0.55 * median) & (intervals <= 1.8 * median)
+            ]
+            cycles_per_pixel = (
+                1.0 / (2.0 * float(np.median(consistent)))
+                if len(consistent) >= 3 else fft_cycles_per_pixel
+            )
+        else:
+            cycles_per_pixel = fft_cycles_per_pixel
         low = float(np.percentile(gray, 10.0))
         high = float(np.percentile(gray, 90.0))
         denominator = high + low

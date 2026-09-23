@@ -154,6 +154,7 @@ async function loadCameras() {
 
 document.getElementById('freeze').addEventListener('click', async () => {
     try {
+        clearMeasurement();
         const result = await api('/api/mtf/freeze', {
             method: 'POST', headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({camera_id: camera.value})
@@ -307,6 +308,7 @@ document.getElementById('clear-outline').addEventListener('click', () => {
     clearOutline(); status('Target outline cleared.');
 });
 document.getElementById('mode').addEventListener('change', () => {
+    clearMeasurement();
     updateAnalyzeAvailability();
     if (outline.length === 4 && document.getElementById('mode').value === 'slanted_edge') {
         status('Four-corner ROIs are for USAF analysis. Draw a rectangular ROI around one clean edge.');
@@ -341,26 +343,67 @@ function frequency(value) {
         : `${value.toFixed(4)} cy/px`;
 }
 
-function drawCurve(x, y, label) {
+function clearMeasurement() {
+    document.getElementById('metrics').innerHTML = '';
+    const canvas = document.getElementById('curve');
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+}
+
+function tickText(value, span) {
+    if (Math.abs(span) < 0.1) return value.toFixed(3);
+    if (Math.abs(span) < 2) return value.toFixed(2);
+    return value.toFixed(0);
+}
+
+function drawCurve(x, y, title, xLabel, yLabel) {
     const canvas = document.getElementById('curve');
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     if (!x || !y || x.length < 2) return;
-    const pad = 45, width = canvas.width - 2 * pad, height = canvas.height - 2 * pad;
-    const ymin = Math.min(...y), ymax = Math.max(...y);
-    ctx.strokeStyle = '#222'; ctx.strokeRect(pad, pad, width, height);
+    const left = 76, right = 24, top = 40, bottom = 66;
+    const width = canvas.width - left - right, height = canvas.height - top - bottom;
+    const xmin = Math.min(...x), xmax = Math.max(...x);
+    let ymin = Math.min(...y), ymax = Math.max(...y);
+    if (title === 'Normalized MTF') { ymin = 0; ymax = Math.max(1, ymax); }
+    const xspan = Math.max(1e-9, xmax - xmin), yspan = Math.max(1e-9, ymax - ymin);
+    ctx.strokeStyle = '#222'; ctx.strokeRect(left, top, width, height);
+    ctx.fillStyle = '#222'; ctx.font = '13px Arial';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    for (let index = 0; index <= 4; index++) {
+        const fraction = index / 4;
+        const px = left + fraction * width;
+        ctx.beginPath(); ctx.moveTo(px, top + height); ctx.lineTo(px, top + height + 5); ctx.stroke();
+        ctx.fillText(tickText(xmin + fraction * xspan, xspan), px, top + height + 8);
+    }
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    for (let index = 0; index <= 4; index++) {
+        const fraction = index / 4;
+        const py = top + height * (1 - fraction);
+        ctx.beginPath(); ctx.moveTo(left - 5, py); ctx.lineTo(left, py); ctx.stroke();
+        ctx.fillText(tickText(ymin + fraction * yspan, yspan), left - 9, py);
+    }
     ctx.strokeStyle = '#087ec1'; ctx.lineWidth = 2; ctx.beginPath();
     y.forEach((value, index) => {
-        const px = pad + width * index / (y.length - 1);
-        const py = pad + height * (1 - (value - ymin) / Math.max(1e-9, ymax - ymin));
+        const px = left + width * (x[index] - xmin) / xspan;
+        const py = top + height * (1 - (value - ymin) / yspan);
         index ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
     });
-    ctx.stroke(); ctx.fillStyle = '#111'; ctx.font = '16px Arial'; ctx.fillText(label, pad, 25);
+    ctx.stroke();
+    ctx.fillStyle = '#111'; ctx.font = '15px Arial';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; ctx.fillText(title, left, 24);
+    ctx.textAlign = 'center'; ctx.fillText(xLabel, left + width / 2, canvas.height - 8);
+    ctx.save();
+    ctx.translate(17, top + height / 2); ctx.rotate(-Math.PI / 2);
+    ctx.fillText(yLabel, 0, 0); ctx.restore();
 }
 
 analyze.addEventListener('click', async () => {
     try {
+        clearMeasurement();
         const result = await api('/api/mtf/analyze', {
             method: 'POST', headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
@@ -379,14 +422,22 @@ analyze.addEventListener('click', async () => {
                 metric('Edge slant', result.slant_degrees.toFixed(2) + '°') +
                 metric('Edge isolation', (100 * result.contrast_fraction).toFixed(0) + '%') +
                 metric('Valid', result.valid ? 'Yes' : 'Review');
-            drawCurve(result.frequency_cycles_per_pixel, result.mtf, 'Normalized MTF');
+            drawCurve(
+                result.frequency_cycles_per_pixel, result.mtf,
+                'Normalized MTF', 'Spatial frequency (cycles/pixel)',
+                'Normalized response (unitless)'
+            );
             status(result.warning || 'Slanted-edge measurement complete.', Boolean(result.warning));
         } else {
             document.getElementById('metrics').innerHTML =
                 metric('Bar modulation', (100 * result.modulation).toFixed(1) + '%') +
                 metric('Dominant frequency', result.dominant_frequency_cycles_per_pixel.toFixed(4) + ' cy/px') +
                 metric('Orientation', result.orientation) + metric('Valid', result.valid ? 'Yes' : 'Review');
-            drawCurve(result.profile.map((_, i) => i), result.profile, 'Mean bar profile');
+            drawCurve(
+                result.profile.map((_, i) => i), result.profile,
+                'Mean bar profile', 'Position across ROI (pixels)',
+                'Relative intensity (DN)'
+            );
             status(
                 result.warning || (result.perspective_rectified
                     ? 'Perspective-corrected USAF measurement complete.'
