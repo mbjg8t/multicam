@@ -115,12 +115,12 @@ alignment.
 - Alignments are runtime state and are not persisted after application exit.
 - Changing the reference is blocked after alignment work exists. Use **Reset
   all alignments** before choosing a different reference.
-- Frozen frames are the latest available frames and may not be simultaneous.
+- Frozen frames are captured sequentially and may not be simultaneous.
 - Selection zoom enlarges the frozen frame without inventing detail; point
-  coordinates remain in native frozen-frame pixels. Frozen frames currently
-  use the configured live-preview resolution. A future full-resolution
-  calibration-capture service must request a still safely through each backend
-  without silently changing live sensor geometry.
+  coordinates remain in native frozen-frame pixels. Each backend is asked for
+  its maximum-resolution calibration still; unsupported backends fall back to
+  preview. Live-preview resolution is restored afterward, and matrices are
+  scaled into live pixels only when the aspect ratios remain compatible.
 - A homography aligns one subject plane. Cameras separated in space will still
   show parallax for objects at different depths; no single 2D transform can
   remove that.
@@ -128,5 +128,8 @@ alignment.
   initial rotations may defeat automatic patch matching. Place the matching
   target points manually in those cases; the multi-point transform still
   solves normally.
+- Guided auto compares all-point affine and homography fits at six or seven
+  pairs. It promotes the more complex homography only for a material residual
+  improvement; robust affine/homography outlier rejection begins at eight.
 - Alignment-profile persistence and lens-distortion calibration remain planned
   work.

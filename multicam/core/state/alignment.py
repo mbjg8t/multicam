@@ -155,6 +155,66 @@ class RegistrationTransform:
             created_at=time.time(),
         )
 
+    def rescaled_for_sizes(
+        self,
+        *,
+        source_size: tuple[int, int],
+        reference_size: tuple[int, int],
+        aspect_tolerance: float = 0.01,
+    ) -> RegistrationTransform:
+        """Express this calibration matrix in new pixel dimensions."""
+        if self.source_size is None or self.reference_size is None:
+            raise ValueError("Calibration dimensions are unavailable")
+
+        old_sw, old_sh = self.source_size
+        old_rw, old_rh = self.reference_size
+        new_sw, new_sh = source_size
+        new_rw, new_rh = reference_size
+        dimensions = (
+            old_sw, old_sh, old_rw, old_rh,
+            new_sw, new_sh, new_rw, new_rh,
+        )
+        if min(dimensions) <= 0:
+            raise ValueError("Frame dimensions must be positive")
+
+        def compatible(old_size, new_size):
+            old_ratio = old_size[0] / old_size[1]
+            new_ratio = new_size[0] / new_size[1]
+            return abs(old_ratio / new_ratio - 1.0) <= aspect_tolerance
+
+        if not compatible(self.source_size, source_size):
+            raise ValueError("Source crop or aspect ratio changed")
+        if not compatible(self.reference_size, reference_size):
+            raise ValueError("Reference crop or aspect ratio changed")
+
+        matrix = self.matrix
+        source_x = old_sw / new_sw
+        source_y = old_sh / new_sh
+        reference_x = new_rw / old_rw
+        reference_y = new_rh / old_rh
+        return replace(
+            self,
+            matrix=(
+                (
+                    reference_x * matrix[0][0] * source_x,
+                    reference_x * matrix[0][1] * source_y,
+                    reference_x * matrix[0][2],
+                ),
+                (
+                    reference_y * matrix[1][0] * source_x,
+                    reference_y * matrix[1][1] * source_y,
+                    reference_y * matrix[1][2],
+                ),
+                (
+                    matrix[2][0] * source_x,
+                    matrix[2][1] * source_y,
+                    matrix[2][2],
+                ),
+            ),
+            source_size=source_size,
+            reference_size=reference_size,
+        )
+
 
 @dataclass(slots=True)
 class AlignmentState:

@@ -48,6 +48,15 @@ class CameraDevice(ABC):
         """Change a camera control."""
         raise NotImplementedError
 
+    def capture_calibration_frame(self) -> Frame | None:
+        """Capture the best available still for geometric calibration.
+
+        The broker calls this with acquisition stopped. Backends that cannot
+        change safely to a still mode return ``None`` and alignment falls back
+        to the latest preview frame.
+        """
+        return None
+
     def close(self) -> None:
         """
         Release the camera.

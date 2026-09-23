@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 from multicam.core.cameras import (
     CameraBackend,
     CameraCapability,
@@ -10,6 +12,20 @@ from multicam.core.cameras import (
 
 
 class Picamera2Device(CameraDevice):
+
+    _STANDARD_CONTROLS = {
+        "brightness": ("Brightness", "Brightness", "float", None),
+        "contrast": ("Contrast", "Contrast", "float", None),
+        "saturation": ("Saturation", "Saturation", "float", None),
+        "sharpness": ("Sharpness", "Sharpness", "float", None),
+        "exposure_compensation": (
+            "ExposureValue", "Exposure Compensation", "float", "EV"
+        ),
+        "auto_exposure": ("AeEnable", "Auto Exposure", "boolean", None),
+        "auto_white_balance": (
+            "AwbEnable", "Auto White Balance", "boolean", None
+        ),
+    }
 
     def __init__(self, info: CameraInfo):
         super().__init__(info)
@@ -31,6 +47,55 @@ class Picamera2Device(CameraDevice):
 
         self._running = False
         self._frame_number = 0
+
+    def _maximum_sensor_size(self):
+        modes = getattr(self._camera, "sensor_modes", ()) or ()
+        sizes = [tuple(mode["size"]) for mode in modes if mode.get("size")]
+        return max(sizes, key=lambda size: size[0] * size[1], default=None)
+
+    def capture_calibration_frame(self):
+        """Capture one maximum-resolution still, then restore live preview."""
+        maximum_size = self._maximum_sensor_size()
+        if maximum_size is None:
+            return None
+
+        still_config = self._camera.create_still_configuration(
+            main={"size": maximum_size, "format": "RGB888"}
+        )
+
+        try:
+            self._camera.configure(still_config)
+            self._camera.start()
+            image = self._camera.capture_array("main")
+            metadata = dict(self._camera.capture_metadata())
+            timestamp_ns = time.time_ns()
+            monotonic_ns = time.monotonic_ns()
+        finally:
+            try:
+                self._camera.stop()
+            finally:
+                self._configure_preview(self._preview_size)
+
+        height, width = image.shape[:2]
+        metadata.update({
+            "capture_purpose": "alignment_calibration",
+            "capture_quality": "maximum_sensor_resolution",
+            "live_preview_size": self._preview_size,
+            "sensor_capture_size": (width, height),
+        })
+        self._frame_number += 1
+        return Frame(
+            camera_id=self.id,
+            image=image,
+            timestamp_ns=timestamp_ns,
+            monotonic_timestamp_ns=monotonic_ns,
+            width=width,
+            height=height,
+            pixel_format="RGB888",
+            bit_depth=8,
+            frame_number=self._frame_number,
+            metadata=metadata,
+        )
 
     def _configure_preview(self, size):
         config = self._camera.create_preview_configuration(
@@ -116,6 +181,25 @@ class Picamera2Device(CameraDevice):
         capabilities = []
 
         controls = self._camera.camera_controls
+
+        for control_id, definition in self._STANDARD_CONTROLS.items():
+            libcamera_id, name, value_type, units = definition
+            if libcamera_id not in controls:
+                continue
+
+            minimum, maximum, default = controls[libcamera_id]
+            capabilities.append(CameraCapability(
+                id=control_id,
+                name=name,
+                type=value_type,
+                readable=True,
+                writable=True,
+                value=default,
+                minimum=minimum if value_type != "boolean" else None,
+                maximum=maximum if value_type != "boolean" else None,
+                units=units,
+                metadata={"libcamera_control": libcamera_id},
+            ))
 
         if "ExposureTime" in controls:
             minimum, maximum, default = controls["ExposureTime"]
@@ -210,6 +294,17 @@ class Picamera2Device(CameraDevice):
     def get_control(self, control_id):
         metadata = self._camera.capture_metadata()
 
+        if control_id in self._STANDARD_CONTROLS:
+            libcamera_id = self._STANDARD_CONTROLS[control_id][0]
+            value = metadata.get(libcamera_id)
+            if value is None:
+                capability = next(
+                    item for item in self.get_capabilities()
+                    if item.id == control_id
+                )
+                value = capability.value
+            return value
+
         if control_id == "exposure":
             return metadata.get("ExposureTime")
 
@@ -228,6 +323,20 @@ class Picamera2Device(CameraDevice):
         raise KeyError(control_id)
 
     def set_control(self, control_id, value):
+        if control_id in self._STANDARD_CONTROLS:
+            libcamera_id, _, value_type, _ = self._STANDARD_CONTROLS[
+                control_id
+            ]
+            if value_type == "boolean":
+                parsed = bool(value)
+            elif value_type == "integer":
+                parsed = int(value)
+            else:
+                parsed = float(value)
+
+            self._camera.set_controls({libcamera_id: parsed})
+            return
+
         if control_id == "exposure":
             self._camera.set_controls(
                 {

@@ -161,7 +161,13 @@ class Compositor:
             )
 
             if source_changed or reference_changed:
-                registration = None
+                try:
+                    registration = registration.rescaled_for_sizes(
+                        source_size=(image.shape[1], image.shape[0]),
+                        reference_size=(base.shape[1], base.shape[0]),
+                    )
+                except ValueError:
+                    registration = None
 
         if registration is not None:
             image, mask = self._warp_registration(

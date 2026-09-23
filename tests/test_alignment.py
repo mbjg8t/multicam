@@ -16,6 +16,9 @@ class StubBroker:
     def get_latest(self, camera_id):
         return self.frames.get(camera_id)
 
+    def capture_calibration_frame(self, camera_id):
+        return None
+
 
 def point_pair_transform():
     return RegistrationTransform.from_point_pair(
@@ -100,6 +103,65 @@ def test_alignment_service_freezes_copies_and_builds_draft():
 
     assert transform.x == 30.0
     assert state.get().drafts["target"] == transform
+
+
+def test_alignment_freeze_prefers_backend_calibration_still():
+    preview = Frame(
+        camera_id="reference",
+        image=np.zeros((480, 640), dtype=np.uint8),
+    )
+    still = Frame(
+        camera_id="reference",
+        image=np.zeros((1944, 2592), dtype=np.uint8),
+        metadata={"capture_quality": "maximum_sensor_resolution"},
+    )
+
+    class CalibrationBroker(StubBroker):
+        def capture_calibration_frame(self, camera_id):
+            return still
+
+    service = AlignmentService(
+        CalibrationBroker({"reference": preview}),
+        AlignmentStateStore(),
+    )
+    info = service.freeze(["reference"])
+
+    assert (info[0].width, info[0].height) == (2592, 1944)
+    assert service.get_frozen("reference").metadata[
+        "capture_quality"
+    ] == "maximum_sensor_resolution"
+
+
+def test_registration_rescales_calibration_pixels_to_live_pixels():
+    transform = RegistrationTransform(
+        matrix=((1.5, 0.0, 300.0), (0.0, 1.5, 150.0), (0.0, 0.0, 1.0)),
+        source_size=(4000, 3000),
+        reference_size=(2000, 1500),
+    )
+
+    live = transform.rescaled_for_sizes(
+        source_size=(800, 600),
+        reference_size=(1000, 750),
+    )
+
+    assert live.matrix == (
+        (3.75, 0.0, 150.0),
+        (0.0, 3.75, 75.0),
+        (0.0, 0.0, 1.0),
+    )
+
+
+def test_registration_refuses_aspect_ratio_change():
+    transform = RegistrationTransform.identity_for_sizes(
+        source_size=(4000, 3000),
+        reference_size=(4000, 3000),
+    )
+
+    with pytest.raises(ValueError, match="Source crop"):
+        transform.rescaled_for_sizes(
+            source_size=(1280, 720),
+            reference_size=(1280, 960),
+        )
 
 
 def test_alignment_service_rejects_click_outside_frame():

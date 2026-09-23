@@ -57,7 +57,15 @@ class AlignmentService:
         frozen: dict[str, Frame] = {}
 
         for camera_id in camera_ids:
-            frame = self.broker.get_latest(camera_id)
+            preview = self.broker.get_latest(camera_id)
+
+            try:
+                frame = self.broker.capture_calibration_frame(camera_id)
+            except (AttributeError, NotImplementedError):
+                frame = None
+
+            if frame is None:
+                frame = preview
 
             if frame is None:
                 raise ValueError(f"No frame available for {camera_id}")
@@ -844,7 +852,7 @@ class AlignmentService:
         robust_minimum = {
             "translation": 1,
             "similarity": 4,
-            "affine": 6,
+            "affine": 8,
             "homography": 8,
         }
 
@@ -947,7 +955,7 @@ class AlignmentService:
         # an arbitrary outlier when one new pair is added.
         robust_minimum = {
             "similarity": 4,
-            "affine": 6,
+            "affine": 8,
             "homography": 8,
         }[model]
 

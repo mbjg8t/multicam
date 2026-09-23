@@ -69,6 +69,29 @@ def test_picamera_preview_resolution_capability_is_generic_choice():
     assert capability.metadata["requires_stream_restart"] is True
 
 
+def test_picamera_reports_all_supported_standard_image_controls():
+    device = object.__new__(Picamera2Device)
+    device._camera = SimpleNamespace(camera_controls={
+        "Brightness": (-1.0, 1.0, 0.0),
+        "Contrast": (0.0, 32.0, 1.0),
+        "Saturation": (0.0, 32.0, 1.0),
+        "Sharpness": (0.0, 16.0, 1.0),
+        "ExposureValue": (-8.0, 8.0, 0.0),
+        "AeEnable": (False, True, True),
+        "AwbEnable": (False, True, True),
+    })
+    device._preview_size = (1280, 960)
+    device._preview_sizes = [(1280, 960)]
+
+    capabilities = {item.id: item for item in device.get_capabilities()}
+
+    assert {
+        "brightness", "contrast", "saturation", "sharpness",
+        "exposure_compensation", "auto_exposure", "auto_white_balance",
+    } <= set(capabilities)
+    assert capabilities["auto_exposure"].type == "boolean"
+
+
 def test_picamera_preview_resolution_parser_rejects_bad_values():
     assert Picamera2Device._parse_preview_size("640x480") == (640, 480)
 

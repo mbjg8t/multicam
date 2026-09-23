@@ -989,6 +989,33 @@ function cameraReadonlyControl(
 }
 
 
+function cameraChoiceControl(cameraId, capability, value) {
+    const options = (capability.choices || []).map(choice => `
+        <option value="${escapeHtml(choice)}"
+            ${String(choice) === String(value) ? 'selected' : ''}>
+            ${escapeHtml(choice)}
+        </option>
+    `).join('');
+
+    return `
+        <div class="control-row">
+            <label class="control-name" for="control-${
+                encodeURIComponent(cameraId)
+            }-${escapeHtml(capability.id)}">
+                ${escapeHtml(capability.name)}
+            </label>
+            <select id="control-${encodeURIComponent(cameraId)}-${
+                escapeHtml(capability.id)
+            }" onchange="setCameraControl(
+                '${escapeJs(cameraId)}',
+                '${escapeJs(capability.id)}'
+            )">${options}</select>
+            <span></span><span></span>
+        </div>
+    `;
+}
+
+
 function cameraProfileSelectId(cameraId) {
     return (
         'camera-profile-' +
@@ -1328,7 +1355,7 @@ async function loadCameraSettings(cameraId) {
 
         const supported = data.capabilities.filter(
             capability =>
-                capability.type !== 'choice' &&
+                capability.id !== 'preview_resolution' &&
                 capability.id !== 'pixel_format'
         );
         const previewResolution = data.capabilities.find(
@@ -1420,6 +1447,15 @@ async function loadCameraSettings(cameraId) {
 
                 if (capability.type === 'boolean') {
                     html += cameraBooleanControl(
+                        cameraId,
+                        capability,
+                        value
+                    );
+                    continue;
+                }
+
+                if (capability.type === 'choice') {
+                    html += cameraChoiceControl(
                         cameraId,
                         capability,
                         value
@@ -1670,7 +1706,9 @@ async function setCameraControl(cameraId, controlId) {
                     value:
                         input.type === 'checkbox'
                             ? input.checked
-                            : Number(input.value)
+                            : input.tagName === 'SELECT'
+                                ? input.value
+                                : Number(input.value)
                 })
             }
         );
