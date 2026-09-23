@@ -132,6 +132,13 @@ def test_camera_settings_script_includes_preview_resolution_control():
     assert b"preview_resolution" in response.data
 
 
+def test_mtf_workbench_page_is_available():
+    response = app.test_client().get("/mtf")
+    assert response.status_code == 200
+    assert b"MTF Workbench" in response.data
+    assert b"USAF / tri-bar modulation" in response.data
+
+
 def test_camera_hardware_selector_is_stable_and_auto_plans():
     client = app.test_client()
     response = client.get("/static/js/cameras.js")

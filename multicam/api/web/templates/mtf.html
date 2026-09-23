@@ -1,0 +1,42 @@
+<!doctype html>
+<html>
+<head>
+    <title>Multicam MTF Workbench</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/mtf.css') }}">
+</head>
+<body>
+    <header>
+        <h1>MTF Workbench</h1>
+        <label>Camera <select id="camera"></select></label>
+        <button id="freeze">Freeze measurement frame</button>
+        <label>Analysis
+            <select id="mode">
+                <option value="usaf_bar">USAF / tri-bar modulation</option>
+                <option value="slanted_edge">Slanted-edge MTF</option>
+            </select>
+        </label>
+        <button id="analyze" disabled>Analyze ROI</button>
+    </header>
+    <div id="status">Select a running camera and freeze a frame.</div>
+    <main>
+        <section class="image-panel">
+            <h2>Raw frozen frame — drag to select an ROI</h2>
+            <div id="stage">
+                <img id="frame" alt="Frozen camera frame">
+                <div id="selection"></div>
+            </div>
+        </section>
+        <section class="results-panel">
+            <h2>Measurement</h2>
+            <div id="metrics" class="metrics">No measurement yet.</div>
+            <canvas id="curve" width="700" height="360"></canvas>
+            <p class="note">
+                USAF mode reports practical bar modulation and dominant image-space
+                frequency. Slanted-edge mode reports quantitative MTF in cycles/pixel.
+                Display DSP is not used.
+            </p>
+        </section>
+    </main>
+    <script src="{{ url_for('static', filename='js/mtf.js') }}"></script>
+</body>
+</html>

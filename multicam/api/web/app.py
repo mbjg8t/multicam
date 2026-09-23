@@ -19,6 +19,7 @@ from multicam.core.services import (
     FocusService,
     LiveViewService,
     DspService,
+    MtfService,
 )
 from multicam.core.imaging import DspPipelineStore
 from multicam.core.state import (
@@ -33,6 +34,7 @@ from .backend_loader import register_available_backends
 from .alignment_routes import create_alignment_blueprint
 from .focus_routes import create_focus_blueprint
 from .dsp_routes import create_dsp_blueprint
+from .mtf_routes import create_mtf_blueprint
 
 
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
@@ -73,6 +75,7 @@ focus_service = FocusService(
     orientation_store=orientation_store,
     compositor=service.compositor,
 )
+mtf_service = MtfService(broker=broker)
 
 pi_config_path = os.environ.get(
     "MULTICAM_PI_CONFIG",
@@ -113,6 +116,12 @@ app.register_blueprint(create_dsp_blueprint(
     dsp_service=dsp_service,
     dsp_store=dsp_store,
     live_view_service=service,
+))
+app.register_blueprint(create_mtf_blueprint(
+    manager=manager,
+    broker=broker,
+    mtf_service=mtf_service,
+    compositor=service.compositor,
 ))
 atexit.register(dsp_service.stop_all)
 

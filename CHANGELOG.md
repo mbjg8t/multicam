@@ -1,5 +1,15 @@
 # Changelog
 
+## MTF Workbench foundation
+
+- Added a portable raw-frame MTF measurement service.
+- Added manual USAF/tri-bar modulation and dominant-frequency analysis.
+- Added validated-method slanted-edge MTF50, MTF20, MTF10, Nyquist response,
+  ESF data, and normalized MTF curves.
+- Added a dedicated camera-selectable MTF Workbench with raw-frame freeze and
+  drag-to-select ROI workflow.
+- Kept DSP, composite layers, and camera alignment out of measurement inputs.
+
 ## Camera port provisioning foundation
 
 - Added portable camera-port and sensor option models plus plan/apply service

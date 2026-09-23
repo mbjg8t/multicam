@@ -32,7 +32,7 @@ Planned but not yet integrated:
 - runtime hot-plug reconciliation
 - persistent alignment and lens-calibration profiles
 - persistent/reorderable DSP profiles and accelerated processor providers
-- MTF Workbench and analysis service
+- MTF Workbench with manual USAF/tri-bar modulation and slanted-edge MTF
 - measurement sessions, synchronized capture, recording, and reports
 
 ## Raspberry Pi setup

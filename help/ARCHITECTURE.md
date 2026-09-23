@@ -207,6 +207,16 @@ point-placement precision without changing that geometry. Higher-resolution
 calibration is deferred until a backend can prove crop-aware coordinate mapping
 between its still and preview sensor modes.
 
+MTF analysis is a raw-frame consumer. Its Workbench requests a maximum-resolution
+backend still when supported, otherwise copies the latest broker frame, then
+passes a manually selected ROI to a portable
+measurement service. USAF/tri-bar mode reports practical Michelson modulation
+and dominant image-space frequency. Slanted-edge mode uses plateau-normalized
+ESF, a central-gradient LSF, symmetric support, a Hamming window, and a
+DC-normalized FFT to report MTF50/20/10. Manual selection is the initial trusted
+boundary; automatic target localization and report generation remain separate
+future layers.
+
 Focus analysis is a non-owning consumer of the latest broker frame. It computes
 relative sharpness from raw-value grayscale data inside an operator-selected
 ROI while using the normal display conversion for viewing. Session peak and
