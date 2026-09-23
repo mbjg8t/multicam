@@ -15,15 +15,35 @@
                 <option value="slanted_edge">Slanted-edge MTF</option>
             </select>
         </label>
+        <button id="roi-tool" class="active-tool" disabled>ROI tool</button>
+        <button id="outline-tool" disabled>4-corner target</button>
         <button id="analyze" disabled>Analyze ROI</button>
     </header>
     <div id="status">Select a running camera and freeze a frame.</div>
     <main>
         <section class="image-panel">
-            <h2>Raw frozen frame — drag to select an ROI</h2>
-            <div id="stage">
-                <img id="frame" alt="Frozen camera frame">
-                <div id="selection"></div>
+            <div class="image-toolbar">
+                <strong>Frozen frame</strong>
+                <button id="zoom-out" disabled>−</button>
+                <span id="zoom-label">Fit</span>
+                <button id="zoom-in" disabled>+</button>
+                <button id="zoom-fit" disabled>Fit</button>
+                <button id="clear-outline" disabled>Clear outline</button>
+            </div>
+            <div id="image-viewport">
+                <div id="stage">
+                    <img id="frame" alt="Frozen camera frame" draggable="false">
+                    <div id="crosshair-x" class="crosshair"></div>
+                    <div id="crosshair-y" class="crosshair"></div>
+                    <svg id="chart-overlay" aria-label="Four-corner target outline">
+                        <polygon id="chart-polygon"></polygon>
+                        <g id="chart-points"></g>
+                    </svg>
+                    <div id="selection">
+                        <i data-handle="nw"></i><i data-handle="ne"></i>
+                        <i data-handle="sw"></i><i data-handle="se"></i>
+                    </div>
+                </div>
             </div>
         </section>
         <section class="results-panel">
@@ -31,9 +51,9 @@
             <div id="metrics" class="metrics">No measurement yet.</div>
             <canvas id="curve" width="700" height="360"></canvas>
             <p class="note">
-                USAF mode reports practical bar modulation and dominant image-space
-                frequency. Slanted-edge mode reports quantitative MTF in cycles/pixel.
-                Display DSP is not used.
+                USAF: select one three-bar element. Slanted edge: select one clean
+                edge with uniform areas on both sides. The four-corner outline is a
+                framing guide only; measurements use the original unwarped pixels.
             </p>
         </section>
     </main>

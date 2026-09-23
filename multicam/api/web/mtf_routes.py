@@ -51,7 +51,9 @@ def create_mtf_blueprint(*, manager, broker, mtf_service, compositor):
         frame = mtf_service.get_frozen(camera_id)
         if frame is None:
             return jsonify({"error": "Freeze this camera first"}), 404
-        image = compositor.to_display_rgb(frame.image)
+        image = compositor.to_display_rgb(
+            mtf_service.get_oriented_image(camera_id)
+        )
         buffer = io.BytesIO()
         Image.fromarray(image).save(buffer, format="JPEG", quality=94)
         return Response(buffer.getvalue(), mimetype="image/jpeg")
@@ -64,6 +66,7 @@ def create_mtf_blueprint(*, manager, broker, mtf_service, compositor):
                 str(data["camera_id"]),
                 tuple(data["roi"]),
                 str(data["mode"]),
+                str(data.get("roi_space", "normalized")),
             )
         except (KeyError, TypeError, ValueError) as exc:
             return jsonify({"error": str(exc)}), 400

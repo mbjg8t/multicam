@@ -22,8 +22,9 @@ class MtfFrozenFrame:
 class MtfService:
     """Raw-frame MTF and bar-target measurement service."""
 
-    def __init__(self, broker: FrameBroker):
+    def __init__(self, broker: FrameBroker, orientation_store=None):
         self.broker = broker
+        self.orientation_store = orientation_store
         self._frames: dict[str, Frame] = {}
         self._lock = RLock()
 
@@ -59,18 +60,41 @@ class MtfService:
         with self._lock:
             return self._frames.get(camera_id)
 
+    def get_oriented_image(self, camera_id: str) -> np.ndarray | None:
+        """Return the frozen image in the same orientation shown to the user."""
+        frame = self.get_frozen(camera_id)
+        if frame is None:
+            return None
+        if self.orientation_store is None:
+            return frame.image
+        orientation = self.orientation_store.get(camera_id)
+        output = frame.image
+        if orientation.rotation_deg == 90:
+            output = np.rot90(output, k=3)
+        elif orientation.rotation_deg == 180:
+            output = np.rot90(output, k=2)
+        elif orientation.rotation_deg == 270:
+            output = np.rot90(output, k=1)
+        if orientation.flip_horizontal:
+            output = np.fliplr(output)
+        if orientation.flip_vertical:
+            output = np.flipud(output)
+        return output
+
     def analyze(
         self,
         camera_id: str,
         roi: tuple[float, float, float, float],
         mode: str,
+        roi_space: str = "normalized",
     ) -> dict[str, Any]:
         frame = self.get_frozen(camera_id)
         if frame is None:
             raise ValueError("Freeze the selected camera first")
 
-        gray = self._gray(frame.image)
-        x0, y0, x1, y1 = self._roi_pixels(roi, gray.shape)
+        oriented = self.get_oriented_image(camera_id)
+        gray = self._gray(oriented)
+        x0, y0, x1, y1 = self._roi_pixels(roi, gray.shape, roi_space)
         crop = gray[y0:y1, x0:x1]
         if mode == "slanted_edge":
             result = self._slanted_edge(crop)
@@ -90,9 +114,9 @@ class MtfService:
         })
         return result
 
-    @staticmethod
-    def _info(frame: Frame) -> MtfFrozenFrame:
-        height, width = frame.image.shape[:2]
+    def _info(self, frame: Frame) -> MtfFrozenFrame:
+        image = self.get_oriented_image(frame.camera_id)
+        height, width = image.shape[:2]
         return MtfFrozenFrame(
             camera_id=frame.camera_id,
             width=width,
@@ -115,16 +139,18 @@ class MtfService:
         raise ValueError("Unsupported frame format for MTF analysis")
 
     @staticmethod
-    def _roi_pixels(roi, shape):
+    def _roi_pixels(roi, shape, roi_space="normalized"):
         if len(roi) != 4:
             raise ValueError("ROI must contain x0, y0, x1 and y1")
         height, width = shape
         values = [float(value) for value in roi]
-        if all(0.0 <= value <= 1.0 for value in values):
+        if roi_space == "normalized":
             values = [
                 values[0] * width, values[1] * height,
                 values[2] * width, values[3] * height,
             ]
+        elif roi_space != "pixels":
+            raise ValueError("ROI coordinate space must be normalized or pixels")
         x0, x1 = sorted((int(round(values[0])), int(round(values[2]))))
         y0, y1 = sorted((int(round(values[1])), int(round(values[3]))))
         x0, x1 = max(0, x0), min(width, x1)
@@ -179,12 +205,31 @@ class MtfService:
         angle = math.degrees(math.atan2(tangent[1], tangent[0]))
         slant = min(abs(angle) % 90.0, 90.0 - (abs(angle) % 90.0))
         valid_slant = 2.0 <= slant <= 20.0
+        dynamic_range = float(
+            np.percentile(gray, 95.0) - np.percentile(gray, 5.0)
+        )
+        contrast_fraction = contrast / max(dynamic_range, 1e-9)
+        valid_contrast = contrast_fraction >= 0.20
+        warnings = []
+        if not valid_slant:
+            warnings.append(
+                "Edge slant should be 2 to 20 degrees from an image axis"
+            )
+        if not valid_contrast:
+            warnings.append(
+                "Edge profile is not isolated; select one clean edge with "
+                "uniform areas on both sides"
+            )
         return {
-            "valid": bool(valid_slant and curve["mtf50"] is not None),
-            "warning": None if valid_slant else "Edge slant should be 2 to 20 degrees from an image axis",
+            "valid": bool(
+                valid_slant and valid_contrast
+                and curve["mtf50"] is not None
+            ),
+            "warning": "; ".join(warnings) or None,
             "edge_angle_degrees": angle,
             "slant_degrees": slant,
             "contrast": contrast,
+            "contrast_fraction": contrast_fraction,
             "mtf50_cycles_per_pixel": curve["mtf50"],
             "mtf20_cycles_per_pixel": curve["mtf20"],
             "mtf10_cycles_per_pixel": curve["mtf10"],
@@ -278,8 +323,16 @@ class MtfService:
         if high - low <= 5.0 or denominator <= 1e-9:
             raise ValueError("Bar contrast is too low")
         modulation = (high - low) / denominator
+        valid = peak >= 2 and cycles_per_pixel <= 0.5
+        warning = None
+        if peak < 2:
+            warning = (
+                "ROI does not contain a distinct tri-bar element; select one "
+                "small three-bar pattern instead of the complete chart"
+            )
         return {
-            "valid": bool(peak > 0 and cycles_per_pixel <= 0.5),
+            "valid": bool(valid),
+            "warning": warning,
             "orientation": orientation,
             "modulation": modulation,
             "contrast_percent": modulation * 100.0,

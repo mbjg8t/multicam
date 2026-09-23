@@ -75,7 +75,10 @@ focus_service = FocusService(
     orientation_store=orientation_store,
     compositor=service.compositor,
 )
-mtf_service = MtfService(broker=broker)
+mtf_service = MtfService(
+    broker=broker,
+    orientation_store=orientation_store,
+)
 
 pi_config_path = os.environ.get(
     "MULTICAM_PI_CONFIG",
