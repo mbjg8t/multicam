@@ -191,7 +191,8 @@ coordinates for high-resolution numerical stability, rejects inconsistent
 matches, and chooses the simplest model whose residual error is acceptable.
 The compositor inverse-warps the source and a validity mask onto the reference
 canvas so uncovered pixels do not affect underlying layers. Draft transforms
-are shared at runtime for live preview but can be rejected before acceptance.
+are confined to the Alignment preview. The normal live compositor uses only
+accepted transforms, so **Accept** is the explicit commit boundary.
 
 Automatic point matching operates on reduced gradient maps and normalized
 correlation, keeping it portable and less dependent on spectral brightness.
@@ -200,12 +201,11 @@ and perspective. The automatic result is only a draft; reported confidence,
 overlay inspection, manual point correction, nudging, acceptance, and undo
 remain operator-facing safeguards.
 
-Alignment freeze requests each backend's highest-resolution calibration still.
-Backends without controlled still capture fall back to their latest broker
-preview frame. Picamera2 temporarily uses its largest advertised sensor mode,
-captures one frame, and restores the configured live-preview mode. Accepted
-matrices are rescaled into live pixels only when both aspect ratios remain
-compatible; crop/FOV changes are rejected rather than guessed.
+Alignment freeze copies the latest broker frame in the exact resolution,
+sensor crop, and orientation geometry used by live view. Browser zoom improves
+point-placement precision without changing that geometry. Higher-resolution
+calibration is deferred until a backend can prove crop-aware coordinate mapping
+between its still and preview sensor modes.
 
 Focus analysis is a non-owning consumer of the latest broker frame. It computes
 relative sharpness from raw-value grayscale data inside an operator-selected

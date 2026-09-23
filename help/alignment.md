@@ -66,7 +66,8 @@ four corners of the useful subject plane; do not place them on one line.
    transformed target point and its requested reference point.
 11. Use the arrow buttons to nudge the complete transform by 1, 5, or 20
    reference-canvas pixels if needed.
-12. Choose **Accept**, **Reject**, or **Undo accepted**.
+12. Choose **Accept** to commit the draft to the main live view, **Reject** to
+   discard it, or **Undo accepted** to restore the prior live alignment.
 13. Select another target and repeat. The reference remains fixed.
 
 The cursor remains a precise crosshair while selecting, including when zoomed.
@@ -115,12 +116,12 @@ alignment.
 - Alignments are runtime state and are not persisted after application exit.
 - Changing the reference is blocked after alignment work exists. Use **Reset
   all alignments** before choosing a different reference.
-- Frozen frames are captured sequentially and may not be simultaneous.
+- Frozen frames are the latest available live frames and may not be simultaneous.
 - Selection zoom enlarges the frozen frame without inventing detail; point
-  coordinates remain in native frozen-frame pixels. Each backend is asked for
-  its maximum-resolution calibration still; unsupported backends fall back to
-  preview. Live-preview resolution is restored afterward, and matrices are
-  scaled into live pixels only when the aspect ratios remain compatible.
+  coordinates remain in native live-frame pixels. This intentionally preserves
+  the live sensor crop/FOV so an accepted transform maps exactly into the main
+  view. Maximum-resolution still modes are not used because matching aspect
+  ratio alone does not prove matching sensor geometry.
 - A homography aligns one subject plane. Cameras separated in space will still
   show parallax for objects at different depths; no single 2D transform can
   remove that.

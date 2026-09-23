@@ -7,7 +7,12 @@ from multicam.core.cameras import Frame
 from multicam.core.imaging.dsp import DspConfig, DspPipeline, DspPipelineStore
 from multicam.core.services import DspService
 from multicam.core.services import LiveViewService
-from multicam.core.state import CameraLayer, ViewStateStore
+from multicam.core.state import (
+    AlignmentStateStore,
+    CameraLayer,
+    RegistrationTransform,
+    ViewStateStore,
+)
 
 
 class LatestFrameBroker:
@@ -203,3 +208,43 @@ def test_dsp_camera_preview_excludes_other_composite_layers():
 
     assert np.all(composite == 200)
     assert np.all(preview == 25)
+
+
+def test_live_view_applies_alignment_only_after_accept():
+    reference = Frame(
+        camera_id="reference",
+        image=np.zeros((6, 6, 3), dtype=np.uint8),
+    )
+    target_image = np.zeros((6, 6, 3), dtype=np.uint8)
+    target_image[1, 1] = 255
+    target = Frame(camera_id="target", image=target_image)
+
+    class AlignmentBroker:
+        def get_latest(self, camera_id):
+            return {"reference": reference, "target": target}.get(camera_id)
+
+    view = ViewStateStore()
+    view.add_layer(CameraLayer(camera_id="target"))
+    alignment = AlignmentStateStore()
+    alignment.select("reference", "target")
+    transform = RegistrationTransform(
+        matrix=((1.0, 0.0, 2.0), (0.0, 1.0, 1.0), (0.0, 0.0, 1.0)),
+        source_size=(6, 6),
+        reference_size=(6, 6),
+    )
+    alignment.set_draft("target", transform)
+    service = LiveViewService(
+        manager=None,
+        broker=AlignmentBroker(),
+        state=view,
+        alignment_state=alignment,
+    )
+
+    before_accept = service.get_composite()
+    assert before_accept[1, 1].tolist() == [255, 255, 255]
+    assert before_accept[2, 3].tolist() == [0, 0, 0]
+
+    assert alignment.accept("target") is True
+    after_accept = service.get_composite()
+    assert after_accept[1, 1].tolist() == [0, 0, 0]
+    assert after_accept[2, 3].tolist() == [255, 255, 255]

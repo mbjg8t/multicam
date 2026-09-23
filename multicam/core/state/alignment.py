@@ -317,6 +317,11 @@ class AlignmentStateStore:
             result.update(self._state.drafts)
             return result
 
+    def accepted_transforms(self) -> dict[str, RegistrationTransform]:
+        """Return only transforms committed for normal live viewing."""
+        with self._lock:
+            return dict(self._state.transforms)
+
     def reset(self) -> bool:
         with self._lock:
             changed = bool(

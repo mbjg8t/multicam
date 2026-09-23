@@ -57,15 +57,11 @@ class AlignmentService:
         frozen: dict[str, Frame] = {}
 
         for camera_id in camera_ids:
-            preview = self.broker.get_latest(camera_id)
-
-            try:
-                frame = self.broker.capture_calibration_frame(camera_id)
-            except (AttributeError, NotImplementedError):
-                frame = None
-
-            if frame is None:
-                frame = preview
+            # Alignment must use the exact geometry consumed by live view.
+            # A maximum-resolution sensor mode may have the same aspect ratio
+            # but a different crop/FOV, which cannot be recovered by simple
+            # pixel scaling.
+            frame = self.broker.get_latest(camera_id)
 
             if frame is None:
                 raise ValueError(f"No frame available for {camera_id}")

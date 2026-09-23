@@ -105,20 +105,14 @@ def test_alignment_service_freezes_copies_and_builds_draft():
     assert state.get().drafts["target"] == transform
 
 
-def test_alignment_freeze_prefers_backend_calibration_still():
+def test_alignment_freeze_uses_exact_live_frame_geometry():
     preview = Frame(
         camera_id="reference",
         image=np.zeros((480, 640), dtype=np.uint8),
     )
-    still = Frame(
-        camera_id="reference",
-        image=np.zeros((1944, 2592), dtype=np.uint8),
-        metadata={"capture_quality": "maximum_sensor_resolution"},
-    )
-
     class CalibrationBroker(StubBroker):
         def capture_calibration_frame(self, camera_id):
-            return still
+            raise AssertionError("Alignment must not switch sensor modes")
 
     service = AlignmentService(
         CalibrationBroker({"reference": preview}),
@@ -126,10 +120,8 @@ def test_alignment_freeze_prefers_backend_calibration_still():
     )
     info = service.freeze(["reference"])
 
-    assert (info[0].width, info[0].height) == (2592, 1944)
-    assert service.get_frozen("reference").metadata[
-        "capture_quality"
-    ] == "maximum_sensor_resolution"
+    assert (info[0].width, info[0].height) == (640, 480)
+    assert service.get_frozen("reference").image.shape == (480, 640)
 
 
 def test_registration_rescales_calibration_pixels_to_live_pixels():

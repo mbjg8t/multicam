@@ -66,7 +66,7 @@ class LiveViewService:
                 frames[alignment.reference_camera_id] = reference_frame
 
         registrations = (
-            self.alignment_state.effective_transforms()
+            self.alignment_state.accepted_transforms()
             if self.alignment_state is not None
             else None
         )
