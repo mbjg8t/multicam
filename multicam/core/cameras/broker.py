@@ -137,15 +137,20 @@ class FrameBroker:
         self.start(camera_id)
 
     def capture_calibration_frame(self, camera_id: str) -> Frame | None:
-        """Capture a backend-owned calibration still and resume streaming."""
-        was_running = self.get_state(camera_id).running
-        self.stop(camera_id)
+        """Capture the best backend-owned calibration still.
 
+        Native-resolution streaming backends may opt into using the broker's
+        latest frame so freezing never tears down/reopens the live device.
+        """
         with self._lock:
             device = self._devices.get(camera_id)
             if device is None:
                 raise KeyError(camera_id)
+            if device.calibration_capture_uses_live_frame:
+                return self._frames.get(camera_id)
 
+        was_running = self.get_state(camera_id).running
+        self.stop(camera_id)
         try:
             return device.capture_calibration_frame()
         finally:

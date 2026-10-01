@@ -141,3 +141,18 @@ def test_boson_controls_validate_ranges_and_palette():
     assert device.get_control("contrast_low_percentile") == 5.0
     with pytest.raises(ValueError, match="palette"):
         device.set_control("colormap", "rainbow")
+
+
+def test_boson_calibration_capture_uses_live_native_frame():
+    source = np.tile(np.arange(640, dtype=np.uint8), (514, 1))
+    device, capture = make_device(source)
+    device.start()
+    live = device.get_frame()
+
+    assert device.calibration_capture_uses_live_frame is True
+    assert live.width == 640
+    assert live.height == 512
+    assert live.metadata["capture_quality"] == "selected_acquisition_mode"
+    assert capture.released is False
+
+    device.stop()

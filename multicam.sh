@@ -9,11 +9,20 @@ MULTICAM_BIN="$PROJECT_DIR/.venv/bin/multicam"
 
 cd "$PROJECT_DIR" || exit 1
 
+is_multicam_pid() {
+    local pid="${1:-}"
+    [ -n "$pid" ] || return 1
+    kill -0 "$pid" 2>/dev/null || return 1
+    local args
+    args="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+    [[ "$args" == *"multicam"* ]]
+}
+
 is_running() {
     [ -f "$PID_FILE" ] || return 1
     local pid
-    pid="$(cat "$PID_FILE" 2>/dev/null)"
-    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+    pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+    is_multicam_pid "$pid"
 }
 
 start_app() {
@@ -26,7 +35,7 @@ start_app() {
     local pid=$!
     echo "$pid" >"$PID_FILE"
     sleep 1
-    if kill -0 "$pid" 2>/dev/null; then
+    if is_multicam_pid "$pid"; then
         echo "Multicam started (PID $pid). Log: $LOG_FILE"
     else
         rm -f "$PID_FILE"
@@ -36,14 +45,21 @@ start_app() {
 }
 
 stop_app() {
-    if ! is_running; then
-        rm -f "$PID_FILE"
-        echo "Multicam is not running according to $PID_FILE."
+    if [ ! -f "$PID_FILE" ]; then
+        echo "Multicam is not running (no PID file)."
         return 0
     fi
+
     local pid
-    pid="$(cat "$PID_FILE")"
-    kill "$pid"
+    pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+    if ! is_multicam_pid "$pid"; then
+        rm -f "$PID_FILE"
+        echo "Removed stale Multicam PID file${pid:+ (PID $pid)}."
+        return 0
+    fi
+
+    echo "Stopping Multicam (PID $pid)..."
+    kill -TERM "$pid" 2>/dev/null || true
     for _ in $(seq 1 50); do
         if ! kill -0 "$pid" 2>/dev/null; then
             rm -f "$PID_FILE"
@@ -52,7 +68,19 @@ stop_app() {
         fi
         sleep 0.1
     done
-    echo "Multicam PID $pid did not stop within 5 seconds." >&2
+
+    echo "Multicam PID $pid did not stop after SIGTERM; forcing stop..." >&2
+    kill -KILL "$pid" 2>/dev/null || true
+    for _ in $(seq 1 20); do
+        if ! kill -0 "$pid" 2>/dev/null; then
+            rm -f "$PID_FILE"
+            echo "Multicam stopped (forced)."
+            return 0
+        fi
+        sleep 0.1
+    done
+
+    echo "Unable to stop Multicam PID $pid." >&2
     return 1
 }
 

@@ -141,6 +141,13 @@ class BosonDevice(CameraDevice):
             return None
         return self._make_frame(image)
 
+    @property
+    def calibration_capture_uses_live_frame(self) -> bool:
+        # Boson live acquisition is already native resolution (640x512 image;
+        # some transports expose two additional telemetry rows). Reopening the
+        # UVC node for a still can disrupt the active stream.
+        return True
+
     def capture_calibration_frame(self) -> Frame | None:
         self.start()
         try:
@@ -149,8 +156,8 @@ class BosonDevice(CameraDevice):
                 if ok and image is not None:
                     frame = self._make_frame(image)
                     frame.metadata.update({
-                        "capture_purpose": "alignment_calibration",
-                        "capture_quality": "native_sensor_resolution",
+                        "capture_purpose": "calibration_still",
+                        "capture_quality": "selected_acquisition_mode",
                     })
                     return frame
             return None
@@ -180,6 +187,7 @@ class BosonDevice(CameraDevice):
                 "source_shape": tuple(image.shape),
                 "colormap": self._controls["colormap"],
                 "auto_contrast": self._controls["auto_contrast"],
+                "capture_quality": "selected_acquisition_mode",
             },
         )
 

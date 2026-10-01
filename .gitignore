@@ -30,3 +30,7 @@ config/local.json
 *.before_*
 *~
 *.egg-info/
+
+# Local launcher runtime files
+.multicam.pid
+multicam.log

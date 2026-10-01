@@ -164,13 +164,17 @@ document.getElementById('freeze').addEventListener('click', async () => {
         });
         roi = null; outline = []; start = null; resizeHandle = null;
         selection.style.display = 'none'; analyze.disabled = true;
-        frame.src = `/api/mtf/frame/${encodeURIComponent(camera.value)}?t=${Date.now()}`;
+        frame.src = `/api/mtf/frame/${encodeURIComponent(result.camera_id)}?t=${Date.now()}`;
         const qualityLabels = {maximum_sensor_resolution: 'maximum sensor resolution', native_sensor_resolution: 'selected acquisition mode', selected_acquisition_mode: 'selected acquisition mode', live_frame_fallback: 'live-frame fallback'};
         const quality = qualityLabels[result.capture_quality] || result.capture_quality.replaceAll('_', ' ');
         document.getElementById('capture-info').textContent =
             `${result.width}×${result.height} • ${quality}`;
         status(`Frozen ${result.width} × ${result.height} at ${quality}. Select one measurement feature.`);
     } catch (error) { status(error.message, true); }
+});
+
+frame.addEventListener('error', () => {
+    status('Frozen frame could not be loaded. Freeze again or check the camera stream.', true);
 });
 
 frame.addEventListener('load', () => {

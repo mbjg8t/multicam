@@ -48,6 +48,15 @@ class CameraDevice(ABC):
         """Change a camera control."""
         raise NotImplementedError
 
+    @property
+    def calibration_capture_uses_live_frame(self) -> bool:
+        """Whether the current live frame is already the best calibration still.
+
+        Backends such as Boson acquire at native sensor resolution and should not
+        be stopped/reopened just to freeze a calibration/MTF frame.
+        """
+        return False
+
     def capture_calibration_frame(self) -> Frame | None:
         """Capture the best available still for geometric calibration.
 

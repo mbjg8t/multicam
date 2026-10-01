@@ -1,56 +1,28 @@
+"""Opt-in smoke test for a physically connected Aravis camera."""
+import os
+
+import pytest
+
 from multicam.core.cameras import CameraManager
-from multicam.backends.aravis import AravisBackend
+
+pytestmark = pytest.mark.skipif(
+    os.environ.get("MULTICAM_REAL_CAMERA_TESTS") != "1",
+    reason="Set MULTICAM_REAL_CAMERA_TESTS=1 to run real-camera smoke tests",
+)
 
 
-manager = CameraManager()
-manager.register_backend(AravisBackend())
+def test_aravis_real_camera_smoke():
+    from multicam.backends.aravis import AravisBackend
+    manager = CameraManager()
+    manager.register_backend(AravisBackend())
+    cameras = manager.discover()
+    if not cameras:
+        pytest.skip("No Aravis cameras discovered")
 
-cameras = manager.discover()
-
-if not cameras:
-    raise SystemExit("No Aravis cameras discovered")
-
-camera_info = cameras[0]
-
-print()
-print("Opening:")
-print(camera_info)
-
-camera = manager.open(camera_info.id)
-
-print()
-print("Opened camera:")
-print(camera.info)
-
-print()
-print("Capabilities:")
-
-for capability in camera.get_capabilities():
-    print(
-        f"  {capability.id}: "
-        f"{capability.value} "
-        f"{capability.units or ''}"
-    )
-
-camera.start()
-
-print()
-print("Frames:")
-
-for _ in range(10):
-    frame = camera.get_frame(timeout=1.0)
-
-    if frame is None:
-        print("  timeout")
-        continue
-
-    print(
-        f"  #{frame.frame_number} "
-        f"{frame.width}x{frame.height} "
-        f"{frame.pixel_format} "
-        f"dtype={frame.image.dtype} "
-        f"min={frame.image.min()} "
-        f"max={frame.image.max()}"
-    )
-
-manager.close_all()
+    camera = manager.open(cameras[0].id)
+    try:
+        camera.start()
+        frames = [camera.get_frame(timeout=1.0) for _ in range(10)]
+        assert any(frame is not None for frame in frames)
+    finally:
+        manager.close_all()
