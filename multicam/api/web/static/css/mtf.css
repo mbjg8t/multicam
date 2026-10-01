@@ -34,6 +34,9 @@ h2 { font-size: 16px; margin: 0 0 10px; }
 .metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .metric { padding: 9px; background: #292929; border-radius: 4px; }
 .metric strong { display: block; color: #8bd7ff; font-size: 18px; margin-top: 3px; }
+.group-results { grid-column: 1 / -1; width: 100%; border-collapse: collapse; font-size: 13px; }
+.group-results th, .group-results td { padding: 6px 8px; border-bottom: 1px solid #444; text-align: left; }
+.group-results th { color: #aaa; }
 #curve { width: 100%; height: auto; margin-top: 14px; background: #fff; border-radius: 4px; }
 .note { color: #aaa; line-height: 1.4; }
 @media (max-width: 900px) { main { grid-template-columns: 1fr; } }

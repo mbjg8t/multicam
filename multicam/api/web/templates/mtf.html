@@ -12,6 +12,7 @@
         <label>Analysis
             <select id="mode">
                 <option value="usaf_bar">USAF / tri-bar modulation</option>
+                <option value="sbir_target">SBIR multi-target auto</option>
                 <option value="slanted_edge">Slanted-edge MTF</option>
             </select>
         </label>
@@ -53,6 +54,7 @@
             <div id="metrics" class="metrics">No measurement yet.</div>
             <canvas id="curve" width="700" height="360"></canvas>
             <p class="note">
+                SBIR auto: draw one box around the complete compact target.
                 USAF: select one three-bar element. Slanted edge: select one clean
                 edge with uniform areas on both sides. A four-corner USAF ROI is
                 perspective-corrected before its bar profile is measured.

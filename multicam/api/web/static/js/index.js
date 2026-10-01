@@ -96,6 +96,8 @@ document.getElementById('open-dsp').addEventListener('click', () => {
 
 const viewer = document.getElementById('viewer');
 const liveImage = document.getElementById('live-image');
+const frozenImage = document.getElementById('frozen-image');
+const freezeLive = document.getElementById('freeze-live');
 const zoomLabel = document.getElementById('zoom-label');
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 16;
@@ -103,10 +105,12 @@ let zoom = 1;
 let panX = 0;
 let panY = 0;
 let dragStart = null;
+let liveFrozen = false;
 
 function renderZoom() {
-    liveImage.style.transform =
-        `translate(${panX}px, ${panY}px) scale(${zoom})`;
+    const transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+    liveImage.style.transform = transform;
+    frozenImage.style.transform = transform;
     zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
     viewer.classList.toggle('zoomed', zoom > 1.001);
 }
@@ -144,14 +148,15 @@ viewer.addEventListener('wheel', event => {
     setZoom(zoom * factor, event.clientX, event.clientY);
 }, {passive: false});
 
-liveImage.addEventListener('pointerdown', event => {
+viewer.addEventListener('pointerdown', event => {
+    if (event.target.closest('.zoom-controls')) return;
     if (zoom <= 1) return;
     dragStart = {x: event.clientX, y: event.clientY, panX, panY};
-    liveImage.setPointerCapture(event.pointerId);
+    viewer.setPointerCapture(event.pointerId);
     viewer.classList.add('dragging');
 });
 
-liveImage.addEventListener('pointermove', event => {
+viewer.addEventListener('pointermove', event => {
     if (!dragStart) return;
     panX = dragStart.panX + event.clientX - dragStart.x;
     panY = dragStart.panY + event.clientY - dragStart.y;
@@ -162,14 +167,39 @@ function endDrag(event) {
     if (!dragStart) return;
     dragStart = null;
     viewer.classList.remove('dragging');
-    if (liveImage.hasPointerCapture(event.pointerId)) {
-        liveImage.releasePointerCapture(event.pointerId);
+    if (viewer.hasPointerCapture(event.pointerId)) {
+        viewer.releasePointerCapture(event.pointerId);
     }
 }
 
-liveImage.addEventListener('pointerup', endDrag);
-liveImage.addEventListener('pointercancel', endDrag);
-liveImage.addEventListener('dblclick', resetZoom);
+viewer.addEventListener('pointerup', endDrag);
+viewer.addEventListener('pointercancel', endDrag);
+viewer.addEventListener('dblclick', event => {
+    if (!event.target.closest('.zoom-controls')) resetZoom();
+});
+
+freezeLive.addEventListener('click', () => {
+    if (!liveFrozen) {
+        if (!liveImage.naturalWidth || !liveImage.naturalHeight) return;
+        frozenImage.width = liveImage.naturalWidth;
+        frozenImage.height = liveImage.naturalHeight;
+        frozenImage.getContext('2d').drawImage(
+            liveImage, 0, 0, frozenImage.width, frozenImage.height
+        );
+        frozenImage.style.display = 'block';
+        liveImage.style.display = 'none';
+        liveFrozen = true;
+        freezeLive.textContent = 'Resume';
+        freezeLive.title = 'Resume live video';
+    } else {
+        frozenImage.style.display = 'none';
+        liveImage.style.display = 'block';
+        liveFrozen = false;
+        freezeLive.textContent = 'Freeze';
+        freezeLive.title = 'Freeze the displayed live frame';
+    }
+    renderZoom();
+});
 document.getElementById('zoom-in').addEventListener('click', () => setZoom(zoom * 1.25));
 document.getElementById('zoom-out').addEventListener('click', () => setZoom(zoom / 1.25));
 document.getElementById('zoom-fit').addEventListener('click', resetZoom);

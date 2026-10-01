@@ -19,6 +19,12 @@ camera-to-camera alignment are intentionally excluded.
    Mouse-wheel zoom works over the image; **Zoom / pan** allows drag-to-pan.
 6. Select the appropriate analysis and choose **Analyze ROI**.
 
+For an SBIR compact multi-pattern target, choose **SBIR multi-target auto** and
+draw one close rectangular ROI around the complete illuminated target. The
+detector separates horizontal and vertical three-bar groups and reports
+modulation and image-space frequency for every detected group. Keep unrelated
+bright objects and target-holder edges outside the ROI.
+
 **USAF / tri-bar modulation** reports Michelson modulation and the dominant
 image-space frequency in cycles/pixel. Use a tight ROI containing repeated bars
 of one size and orientation. It is a practical resolution measurement, not an
@@ -46,9 +52,9 @@ would change the sharpness being measured.
 - Perspective makes the chart outline trapezoidal. A small local image-space
   ROI remains useful, but a strongly tilted chart places different regions at
   different focus distances. Square the chart to the camera for comparisons.
-- The first release uses manual ROIs deliberately. Automatic target detection
-  and multi-site spatial reports will be added after this measurement boundary
-  is validated in Multicam.
+- Automatic SBIR group detection is intended to remove repetitive ROI work, but
+  every detected group should still be marked valid and visually recognizable.
+  Preserve the frozen frame and ROI when validating a new target type.
 
 ## Algorithm validation checklist
 

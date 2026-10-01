@@ -107,7 +107,9 @@ function setTool(nextTool) {
     panTool.classList.toggle('active-tool', tool === 'pan');
     stage.classList.toggle('pan-tool', tool === 'pan');
     if (tool === 'roi') {
-        status('ROI tool: drag a small measurement region; use its handles to refine it.');
+        status(document.getElementById('mode').value === 'sbir_target'
+            ? 'ROI tool: draw one box around the complete compact SBIR target.'
+            : 'ROI tool: drag a small measurement region; use its handles to refine it.');
     } else if (tool === 'outline') {
         status(`Target outline: click four chart corners clockwise (${outline.length}/4 selected).`);
     } else {
@@ -310,8 +312,11 @@ document.getElementById('clear-outline').addEventListener('click', () => {
 document.getElementById('mode').addEventListener('change', () => {
     clearMeasurement();
     updateAnalyzeAvailability();
-    if (outline.length === 4 && document.getElementById('mode').value === 'slanted_edge') {
-        status('Four-corner ROIs are for USAF analysis. Draw a rectangular ROI around one clean edge.');
+    const mode = document.getElementById('mode').value;
+    if (outline.length === 4 && mode !== 'usaf_bar') {
+        status('Four-corner ROIs are for USAF analysis. Use the ROI tool for this mode.');
+    } else if (mode === 'sbir_target') {
+        status('SBIR auto: draw one rectangle around the complete compact target.');
     }
 });
 document.getElementById('zoom-in').addEventListener('click', () => setZoom(zoom * 1.35));
@@ -411,7 +416,11 @@ analyze.addEventListener('click', async () => {
                 mode: document.getElementById('mode').value,
                 roi,
                 roi_space: 'pixels',
-                quadrilateral: outline.length === 4 ? outline.map(point => [point.x, point.y]) : null
+                quadrilateral: (
+                    document.getElementById('mode').value === 'usaf_bar' && outline.length === 4
+                        ? outline.map(point => [point.x, point.y])
+                        : null
+                )
             })
         });
         if (result.mode === 'slanted_edge') {
@@ -428,6 +437,31 @@ analyze.addEventListener('click', async () => {
                 'Normalized response (unitless)'
             );
             status(result.warning || 'Slanted-edge measurement complete.', Boolean(result.warning));
+        } else if (result.mode === 'sbir_target') {
+            const rows = result.groups.map((group, index) =>
+                `<tr><td>${index + 1}</td><td>${group.orientation}</td>` +
+                `<td>${(100 * group.modulation).toFixed(1)}%</td>` +
+                `<td>${group.dominant_frequency_cycles_per_pixel.toFixed(4)} cy/px</td>` +
+                `<td>${group.valid ? 'Yes' : 'Review'}</td></tr>`
+            ).join('');
+            document.getElementById('metrics').innerHTML =
+                metric('Groups detected', result.groups.length) +
+                metric('Valid groups', result.valid_group_count) +
+                `<table class="group-results"><thead><tr><th>#</th><th>Bars</th>` +
+                `<th>Modulation</th><th>Frequency</th><th>Valid</th></tr></thead>` +
+                `<tbody>${rows}</tbody></table>`;
+            const first = result.groups[0];
+            if (first) {
+                drawCurve(
+                    first.profile.map((_, index) => index), first.profile,
+                    'Group 1 mean bar profile', 'Position across group (pixels)',
+                    'Relative intensity (DN)'
+                );
+            }
+            status(
+                result.warning || `Analyzed ${result.groups.length} SBIR bar groups.`,
+                Boolean(result.warning)
+            );
         } else {
             document.getElementById('metrics').innerHTML =
                 metric('Bar modulation', (100 * result.modulation).toFixed(1) + '%') +

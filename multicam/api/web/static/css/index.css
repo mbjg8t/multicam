@@ -150,7 +150,8 @@ button:disabled {
     user-select: none;
 }
 
-.viewer img {
+.viewer img,
+.viewer canvas {
     max-width: 100%;
     max-height: 100%;
     object-fit: contain;
@@ -159,11 +160,17 @@ button:disabled {
     cursor: zoom-in;
 }
 
-.viewer.zoomed img {
+#frozen-image {
+    display: none;
+}
+
+.viewer.zoomed img,
+.viewer.zoomed canvas {
     cursor: grab;
 }
 
-.viewer.dragging img {
+.viewer.dragging img,
+.viewer.dragging canvas {
     cursor: grabbing;
 }
 

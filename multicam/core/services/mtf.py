@@ -113,8 +113,19 @@ class MtfService:
             result = self._slanted_edge(crop)
         elif mode == "usaf_bar":
             result = self._bar_modulation(crop)
+        elif mode == "sbir_target":
+            if quadrilateral is not None:
+                raise ValueError("SBIR auto analysis uses a rectangular ROI")
+            result = self._sbir_target(crop)
         else:
             raise ValueError("Unknown MTF analysis mode")
+
+        if mode == "sbir_target":
+            for group in result["groups"]:
+                gx0, gy0, gx1, gy1 = group["roi"]
+                group["roi_pixels"] = [
+                    x0 + gx0, y0 + gy0, x0 + gx1, y0 + gy1
+                ]
 
         result.update({
             "camera_id": camera_id,
@@ -127,6 +138,134 @@ class MtfService:
             "perspective_rectified": quadrilateral is not None,
         })
         return result
+
+    @classmethod
+    def _sbir_target(cls, gray: np.ndarray) -> dict[str, Any]:
+        """Locate and measure individual three-bar groups in an SBIR target."""
+        try:
+            import cv2
+        except ImportError as exc:
+            raise ValueError("SBIR auto analysis requires OpenCV") from exc
+
+        low, high = np.percentile(gray, (0.5, 99.5))
+        if high - low < 8.0:
+            raise ValueError("Selected target has insufficient contrast")
+        normalized = np.clip(
+            (gray - low) * 255.0 / (high - low), 0, 255
+        ).astype(np.uint8)
+        blurred = cv2.GaussianBlur(normalized, (3, 3), 0)
+        _, mask = cv2.threshold(
+            blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+        )
+        if np.mean(mask > 0) > 0.55:
+            mask = cv2.bitwise_not(mask)
+        mask = cv2.morphologyEx(
+            mask, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8)
+        )
+
+        count, _, stats, centroids = cv2.connectedComponentsWithStats(mask, 8)
+        minimum = max(4, int(round(min(gray.shape) * 0.012)))
+        bars = []
+        for index in range(1, count):
+            x, y, width, height, area = (
+                int(value) for value in stats[index]
+            )
+            long_side, short_side = max(width, height), min(width, height)
+            if (
+                area < minimum * minimum
+                or short_side < 2
+                or long_side / short_side < 1.7
+            ):
+                continue
+            if area / max(1, width * height) < 0.42:
+                continue
+            bars.append({
+                "x": x, "y": y, "w": width, "h": height,
+                "cx": float(centroids[index, 0]),
+                "cy": float(centroids[index, 1]),
+                "orientation": (
+                    "horizontal bars" if width > height else "vertical bars"
+                ),
+            })
+
+        from itertools import combinations
+        candidates = []
+        for orientation in ("horizontal bars", "vertical bars"):
+            oriented = [
+                bar for bar in bars if bar["orientation"] == orientation
+            ]
+            for trio in combinations(oriented, 3):
+                if orientation == "horizontal bars":
+                    ordered = sorted(trio, key=lambda item: item["cy"])
+                    positions = np.array([item["cy"] for item in ordered])
+                    alignment = np.std([item["cx"] for item in ordered])
+                    long_sizes = np.array([item["w"] for item in ordered])
+                    short_sizes = np.array([item["h"] for item in ordered])
+                else:
+                    ordered = sorted(trio, key=lambda item: item["cx"])
+                    positions = np.array([item["cx"] for item in ordered])
+                    alignment = np.std([item["cy"] for item in ordered])
+                    long_sizes = np.array([item["h"] for item in ordered])
+                    short_sizes = np.array([item["w"] for item in ordered])
+                gaps = np.diff(positions)
+                mean_short = float(np.mean(short_sizes))
+                mean_long = float(np.mean(long_sizes))
+                if (
+                    gaps.min() <= mean_short * 0.65
+                    or gaps.max() >= mean_short * 4.5
+                ):
+                    continue
+                score = float(
+                    np.std(gaps) / max(np.mean(gaps), 1.0)
+                    + np.std(long_sizes) / max(mean_long, 1.0)
+                    + np.std(short_sizes) / max(mean_short, 1.0)
+                    + alignment / max(mean_long, 1.0)
+                )
+                if score > 0.75:
+                    continue
+                x0 = min(item["x"] for item in ordered)
+                y0 = min(item["y"] for item in ordered)
+                x1 = max(item["x"] + item["w"] for item in ordered)
+                y1 = max(item["y"] + item["h"] for item in ordered)
+                pad = max(2, int(round(mean_short)))
+                candidates.append({
+                    "bars": ordered,
+                    "score": score,
+                    "roi": [
+                        max(0, x0 - pad), max(0, y0 - pad),
+                        min(gray.shape[1], x1 + pad),
+                        min(gray.shape[0], y1 + pad),
+                    ],
+                })
+
+        groups, used = [], set()
+        for candidate in sorted(candidates, key=lambda item: item["score"]):
+            identities = {id(item) for item in candidate["bars"]}
+            if identities & used:
+                continue
+            x0, y0, x1, y1 = candidate["roi"]
+            measurement = cls._bar_modulation(gray[y0:y1, x0:x1])
+            measurement["roi"] = candidate["roi"]
+            measurement["detection_score"] = candidate["score"]
+            groups.append(measurement)
+            used.update(identities)
+
+        if not groups:
+            raise ValueError(
+                "No three-bar groups were detected. Draw a close box around the "
+                "complete illuminated SBIR target and verify focus/exposure."
+            )
+        groups.sort(key=lambda item: (item["roi"][1], item["roi"][0]))
+        valid_count = sum(bool(group["valid"]) for group in groups)
+        return {
+            "valid": valid_count > 0,
+            "warning": (
+                None if valid_count == len(groups)
+                else f"Review {len(groups) - valid_count} group(s) with weak or ambiguous bars"
+            ),
+            "groups": groups,
+            "valid_group_count": valid_count,
+        }
 
     @staticmethod
     def _quadrilateral_crop(gray, points):

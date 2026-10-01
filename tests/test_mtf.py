@@ -160,3 +160,18 @@ def test_usaf_rejects_whole_target_scale_gradient():
     result = service.analyze("camera", (0, 0, 1, 1), "usaf_bar")
     assert result["valid"] is False
     assert "three-bar" in result["warning"]
+
+
+def test_sbir_target_auto_detects_horizontal_and_vertical_groups():
+    image = np.full((220, 260), 18, dtype=np.uint8)
+    for offset in (0, 18, 36):
+        image[40 + offset:50 + offset, 30:100] = 230
+        image[125:195, 150 + offset:160 + offset] = 230
+    service = MtfService(StubBroker(Frame(camera_id="camera", image=image)))
+    service.freeze("camera")
+    result = service.analyze("camera", (0, 0, 1, 1), "sbir_target")
+    assert result["valid"] is True
+    assert result["valid_group_count"] == 2
+    assert {group["orientation"] for group in result["groups"]} == {
+        "horizontal bars", "vertical bars"
+    }
