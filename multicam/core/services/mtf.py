@@ -247,6 +247,8 @@ class MtfService:
             measurement = cls._bar_modulation(gray[y0:y1, x0:x1])
             measurement["roi"] = candidate["roi"]
             measurement["detection_score"] = candidate["score"]
+            measurement["detection_confidence"] = max(0.0, min(1.0, 1.0 - candidate["score"] / 0.75))
+            measurement["rejection_reason"] = measurement.get("warning")
             groups.append(measurement)
             used.update(identities)
 
@@ -573,6 +575,8 @@ class MtfService:
             "modulation": modulation,
             "contrast_percent": modulation * 100.0,
             "dominant_frequency_cycles_per_pixel": cycles_per_pixel,
+            "pixels_per_cycle": (1.0 / cycles_per_pixel if cycles_per_pixel > 0 else None),
+            "bar_width_pixels": (0.5 / cycles_per_pixel if cycles_per_pixel > 0 else None),
             "dark_level": low,
             "bright_level": high,
             "profile": profile.tolist(),

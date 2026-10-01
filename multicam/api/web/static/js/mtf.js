@@ -10,6 +10,7 @@ const crosshairY = document.getElementById('crosshair-y');
 const chartOverlay = document.getElementById('chart-overlay');
 const chartPolygon = document.getElementById('chart-polygon');
 const chartPointsGroup = document.getElementById('chart-points');
+const resultGroups = document.getElementById('result-groups');
 const roiTool = document.getElementById('roi-tool');
 const outlineTool = document.getElementById('outline-tool');
 const panTool = document.getElementById('pan-tool');
@@ -84,7 +85,7 @@ function renderOutline() {
 }
 
 function setZoom(nextZoom) {
-    zoom = Math.max(0.5, Math.min(6, nextZoom));
+    zoom = Math.max(0.5, Math.min(32, nextZoom));
     const width = Math.round(fitWidth * zoom);
     frame.style.width = `${width}px`;
     frame.style.height = 'auto';
@@ -164,11 +165,10 @@ document.getElementById('freeze').addEventListener('click', async () => {
         roi = null; outline = []; start = null; resizeHandle = null;
         selection.style.display = 'none'; analyze.disabled = true;
         frame.src = `/api/mtf/frame/${encodeURIComponent(camera.value)}?t=${Date.now()}`;
-        const quality = result.capture_quality === 'maximum_sensor_resolution'
-            ? 'maximum sensor resolution'
-            : 'live-frame fallback';
+        const qualityLabels = {maximum_sensor_resolution: 'maximum sensor resolution', native_sensor_resolution: 'selected acquisition mode', selected_acquisition_mode: 'selected acquisition mode', live_frame_fallback: 'live-frame fallback'};
+        const quality = qualityLabels[result.capture_quality] || result.capture_quality.replaceAll('_', ' ');
         document.getElementById('capture-info').textContent =
-            `${result.width} × ${result.height} — ${quality}`;
+            `${result.width}×${result.height} • ${quality}`;
         status(`Frozen ${result.width} × ${result.height} at ${quality}. Select one measurement feature.`);
     } catch (error) { status(error.message, true); }
 });
@@ -181,7 +181,7 @@ frame.addEventListener('load', () => {
         availableHeight / frame.naturalHeight
     );
     fitWidth = Math.round(frame.naturalWidth * scale);
-    ['roi-tool', 'outline-tool', 'pan-tool', 'zoom-out', 'zoom-in', 'zoom-fit']
+    ['roi-tool', 'outline-tool', 'pan-tool', 'zoom-out', 'zoom-in', 'zoom-fit', 'zoom-selection']
         .forEach(id => { document.getElementById(id).disabled = false; });
     setZoom(1);
     renderOutline();
@@ -309,19 +309,52 @@ panTool.addEventListener('click', () => setTool('pan'));
 document.getElementById('clear-outline').addEventListener('click', () => {
     clearOutline(); status('Target outline cleared.');
 });
+function applyModeUi() {
+    const mode = document.getElementById('mode').value;
+    const isUsaf = mode === 'usaf_bar';
+    outlineTool.disabled = !frame.naturalWidth || !isUsaf;
+    outlineTool.style.display = isUsaf ? '' : 'none';
+    document.getElementById('clear-outline').style.display = isUsaf ? '' : 'none';
+    if (!isUsaf && outline.length) clearOutline();
+    if (!isUsaf && tool === 'outline') setTool('roi');
+    if (mode === 'sbir_target') {
+        setTool('roi');
+        analyze.textContent = 'Analyze SBIR Target';
+        document.getElementById('mode-help').textContent = 'Draw one box around all bar groups.';
+        status('Draw one box around all bar groups.');
+    } else if (mode === 'slanted_edge') {
+        setTool('roi');
+        analyze.textContent = 'Analyze Edge';
+        document.getElementById('mode-help').textContent = 'Select one clean dark-to-bright edge with uniform regions on both sides.';
+        status('Select one clean dark-to-bright edge.');
+    } else {
+        analyze.textContent = 'Analyze Element';
+        document.getElementById('mode-help').textContent = 'Select one three-bar element, or use the optional 4-corner target tool for perspective correction.';
+        status('Select one USAF three-bar element.');
+    }
+    updateAnalyzeAvailability();
+}
+
 document.getElementById('mode').addEventListener('change', () => {
     clearMeasurement();
-    updateAnalyzeAvailability();
-    const mode = document.getElementById('mode').value;
-    if (outline.length === 4 && mode !== 'usaf_bar') {
-        status('Four-corner ROIs are for USAF analysis. Use the ROI tool for this mode.');
-    } else if (mode === 'sbir_target') {
-        status('SBIR auto: draw one rectangle around the complete compact target.');
-    }
+    applyModeUi();
 });
 document.getElementById('zoom-in').addEventListener('click', () => setZoom(zoom * 1.35));
 document.getElementById('zoom-out').addEventListener('click', () => setZoom(zoom / 1.35));
 document.getElementById('zoom-fit').addEventListener('click', () => setZoom(1));
+document.getElementById('zoom-selection').addEventListener('click', () => {
+    if (!roi || !frame.naturalWidth) return;
+    const roiWidth = roi[2] - roi[0], roiHeight = roi[3] - roi[1];
+    const targetScale = Math.min((viewport.clientWidth - 50) / roiWidth, (viewport.clientHeight - 50) / roiHeight);
+    const fitScale = fitWidth / frame.naturalWidth;
+    setZoom(Math.min(32, targetScale / Math.max(fitScale, 1e-9)));
+    requestAnimationFrame(() => {
+        const rect = frame.getBoundingClientRect();
+        const sx = rect.width / frame.naturalWidth, sy = rect.height / frame.naturalHeight;
+        viewport.scrollLeft = frame.offsetLeft + ((roi[0] + roi[2]) / 2) * sx - viewport.clientWidth / 2;
+        viewport.scrollTop = frame.offsetTop + ((roi[1] + roi[3]) / 2) * sy - viewport.clientHeight / 2;
+    });
+});
 
 viewport.addEventListener('wheel', event => {
     if (!frame.naturalWidth) return;
@@ -338,6 +371,18 @@ viewport.addEventListener('wheel', event => {
     });
 }, {passive: false});
 
+function renderResultGroups(groups) {
+    if (!groups || !groups.length || !frame.naturalWidth) { resultGroups.innerHTML = ''; return; }
+    renderOutline();
+    chartOverlay.style.display = 'block';
+    resultGroups.innerHTML = groups.map((group, index) => {
+        const [x0, y0, x1, y1] = group.roi_pixels;
+        const cls = group.valid ? 'valid' : 'review';
+        return `<rect class="result-group ${cls}" x="${x0}" y="${y0}" width="${x1-x0}" height="${y1-y0}"></rect>` +
+            `<text class="result-label ${cls}" x="${x0 + 5}" y="${Math.max(18, y0 + 22)}">${index + 1}</text>`;
+    }).join('');
+}
+
 function metric(label, value) {
     return `<div class="metric">${label}<strong>${value}</strong></div>`;
 }
@@ -350,6 +395,7 @@ function frequency(value) {
 
 function clearMeasurement() {
     document.getElementById('metrics').innerHTML = '';
+    resultGroups.innerHTML = '';
     const canvas = document.getElementById('curve');
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -438,17 +484,20 @@ analyze.addEventListener('click', async () => {
             );
             status(result.warning || 'Slanted-edge measurement complete.', Boolean(result.warning));
         } else if (result.mode === 'sbir_target') {
+            renderResultGroups(result.groups);
             const rows = result.groups.map((group, index) =>
                 `<tr><td>${index + 1}</td><td>${group.orientation}</td>` +
                 `<td>${(100 * group.modulation).toFixed(1)}%</td>` +
                 `<td>${group.dominant_frequency_cycles_per_pixel.toFixed(4)} cy/px</td>` +
-                `<td>${group.valid ? 'Yes' : 'Review'}</td></tr>`
+                `<td>${group.pixels_per_cycle ? group.pixels_per_cycle.toFixed(1) : '—'} px/cycle</td>` +
+                `<td>${(100 * (group.detection_confidence ?? 0)).toFixed(0)}%</td>` +
+                `<td>${group.valid ? 'Valid' : 'Review'}</td></tr>`
             ).join('');
             document.getElementById('metrics').innerHTML =
                 metric('Groups detected', result.groups.length) +
                 metric('Valid groups', result.valid_group_count) +
                 `<table class="group-results"><thead><tr><th>#</th><th>Bars</th>` +
-                `<th>Modulation</th><th>Frequency</th><th>Valid</th></tr></thead>` +
+                `<th>Modulation</th><th>Frequency</th><th>Spacing</th><th>Confidence</th><th>Result</th></tr></thead>` +
                 `<tbody>${rows}</tbody></table>`;
             const first = result.groups[0];
             if (first) {
@@ -483,3 +532,5 @@ analyze.addEventListener('click', async () => {
 });
 
 loadCameras().catch(error => status(error.message, true));
+
+applyModeUi();

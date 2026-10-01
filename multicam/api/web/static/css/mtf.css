@@ -40,3 +40,12 @@ h2 { font-size: 16px; margin: 0 0 10px; }
 #curve { width: 100%; height: auto; margin-top: 14px; background: #fff; border-radius: 4px; }
 .note { color: #aaa; line-height: 1.4; }
 @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+.tool-ribbon { display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: #202020; flex-wrap: wrap; }
+.zoom-controls { display: inline-flex; align-items: center; gap: 5px; }
+#zoom-selection { min-width: 70px; }
+.result-group { fill: rgba(255,255,255,.03); stroke-width: 3; vector-effect: non-scaling-stroke; }
+.result-group.valid { stroke: #35d06f; }
+.result-group.review { stroke: #ffd24a; }
+.result-label { font: bold 24px Arial; stroke: #111; stroke-width: 4px; paint-order: stroke; }
+.result-label.valid { fill: #35d06f; }
+.result-label.review { fill: #ffd24a; }

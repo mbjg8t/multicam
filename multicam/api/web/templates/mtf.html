@@ -5,61 +5,33 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/mtf.css') }}">
 </head>
 <body>
-    <header>
-        <h1>MTF Workbench</h1>
+    <header><h1>MTF Workbench</h1></header>
+    <div class="tool-ribbon">
         <label>Camera <select id="camera"></select></label>
-        <button id="freeze">Freeze measurement frame</button>
-        <label>Analysis
-            <select id="mode">
-                <option value="usaf_bar">USAF / tri-bar modulation</option>
-                <option value="sbir_target">SBIR multi-target auto</option>
-                <option value="slanted_edge">Slanted-edge MTF</option>
-            </select>
-        </label>
-        <button id="roi-tool" class="active-tool" disabled>ROI tool</button>
+        <button id="freeze">Freeze</button>
+        <label>Mode <select id="mode">
+            <option value="usaf_bar">USAF tri-bar</option>
+            <option value="sbir_target">SBIR multi-target auto</option>
+            <option value="slanted_edge">Slanted edge</option>
+        </select></label>
+        <button id="roi-tool" class="active-tool" disabled>ROI</button>
         <button id="outline-tool" disabled>4-corner target</button>
-        <button id="pan-tool" disabled>Zoom / pan</button>
-        <button id="analyze" disabled>Analyze ROI</button>
-    </header>
+        <button id="pan-tool" disabled>Pan</button>
+        <span class="zoom-controls"><button id="zoom-out" disabled>−</button><span id="zoom-label">Fit</span><button id="zoom-in" disabled>+</button><button id="zoom-fit" disabled>Fit</button><button id="zoom-selection" disabled>Selection</button></span>
+        <button id="analyze" disabled>Analyze Element</button>
+    </div>
     <div id="status">Select a running camera and freeze a frame.</div>
     <main>
         <section class="image-panel">
-            <div class="image-toolbar">
-                <strong>Frozen frame</strong>
-                <span id="capture-info">Not frozen</span>
-                <button id="zoom-out" disabled>−</button>
-                <span id="zoom-label">Fit</span>
-                <button id="zoom-in" disabled>+</button>
-                <button id="zoom-fit" disabled>Fit</button>
-                <button id="clear-outline" disabled>Clear outline</button>
-            </div>
-            <div id="image-viewport">
-                <div id="stage">
-                    <img id="frame" alt="Frozen camera frame" draggable="false">
-                    <div id="crosshair-x" class="crosshair"></div>
-                    <div id="crosshair-y" class="crosshair"></div>
-                    <svg id="chart-overlay" aria-label="Four-corner target outline">
-                        <polygon id="chart-polygon"></polygon>
-                        <g id="chart-points"></g>
-                    </svg>
-                    <div id="selection">
-                        <i data-handle="nw"></i><i data-handle="ne"></i>
-                        <i data-handle="sw"></i><i data-handle="se"></i>
-                    </div>
-                </div>
-            </div>
+            <div class="image-toolbar"><strong>Frozen frame</strong><span id="capture-info">Not frozen</span><button id="clear-outline" disabled>Clear outline</button></div>
+            <div id="image-viewport"><div id="stage">
+                <img id="frame" alt="Frozen camera frame" draggable="false">
+                <div id="crosshair-x" class="crosshair"></div><div id="crosshair-y" class="crosshair"></div>
+                <svg id="chart-overlay" aria-label="Measurement overlays"><polygon id="chart-polygon"></polygon><g id="chart-points"></g><g id="result-groups"></g></svg>
+                <div id="selection"><i data-handle="nw"></i><i data-handle="ne"></i><i data-handle="sw"></i><i data-handle="se"></i></div>
+            </div></div>
         </section>
-        <section class="results-panel">
-            <h2>Measurement</h2>
-            <div id="metrics" class="metrics">No measurement yet.</div>
-            <canvas id="curve" width="700" height="360"></canvas>
-            <p class="note">
-                SBIR auto: draw one box around the complete compact target.
-                USAF: select one three-bar element. Slanted edge: select one clean
-                edge with uniform areas on both sides. A four-corner USAF ROI is
-                perspective-corrected before its bar profile is measured.
-            </p>
-        </section>
+        <section class="results-panel"><h2>Measurement</h2><div id="metrics" class="metrics">No measurement yet.</div><canvas id="curve" width="700" height="360"></canvas><p id="mode-help" class="note"></p></section>
     </main>
     <script src="{{ url_for('static', filename='js/mtf.js') }}"></script>
 </body>
