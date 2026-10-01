@@ -152,6 +152,15 @@ def initialize():
     opened = []
 
     for info in cameras:
+        # Boson UVC capture is opened on demand when the operator adds it as a
+        # layer. Opening every discovered Boson during application startup can
+        # reset affected firmware even when the operator never selected it.
+        if info.backend == "boson":
+            app.logger.info(
+                "Boson camera %s discovered; deferring open until selected",
+                info.name,
+            )
+            continue
         try:
             device = manager.open(info.id)
             broker.add_camera(device)
@@ -964,6 +973,17 @@ def add_layer_api():
         return jsonify({
             "error": "Camera is already a layer"
         }), 400
+
+    if manager.get_device(camera_id) is None:
+        try:
+            device = manager.open(camera_id)
+            broker.add_camera(device)
+            broker.start(camera_id)
+        except Exception as exc:
+            app.logger.exception("Unable to start selected camera %s", camera_id)
+            return jsonify({
+                "error": f"Unable to start camera: {exc}"
+            }), 500
 
     next_z = max(
         (layer.z_order for layer in current.layers),
