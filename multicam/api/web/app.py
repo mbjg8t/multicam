@@ -20,6 +20,7 @@ from multicam.core.services import (
     LiveViewService,
     DspService,
     MtfService,
+    MtfHistoryStore,
 )
 from multicam.core.imaging import DspPipelineStore
 from multicam.core.state import (
@@ -79,6 +80,7 @@ mtf_service = MtfService(
     broker=broker,
     orientation_store=orientation_store,
 )
+mtf_history = MtfHistoryStore()
 
 pi_config_path = os.environ.get(
     "MULTICAM_PI_CONFIG",
@@ -125,6 +127,7 @@ app.register_blueprint(create_mtf_blueprint(
     broker=broker,
     mtf_service=mtf_service,
     compositor=service.compositor,
+    history_store=mtf_history,
 ))
 atexit.register(dsp_service.stop_all)
 

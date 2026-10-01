@@ -49,3 +49,15 @@ h2 { font-size: 16px; margin: 0 0 10px; }
 .result-label { font: bold 24px Arial; stroke: #111; stroke-width: 4px; paint-order: stroke; }
 .result-label.valid { fill: #35d06f; }
 .result-label.review { fill: #ffd24a; }
+.measurement-summary { margin-bottom: 10px; padding: 10px; background: #132a36; border: 1px solid #31586a; border-radius: 5px; line-height: 1.45; }
+.measurement-summary strong { color: #8bd7ff; }
+.history-heading { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; border-top: 1px solid #444; padding-top: 12px; }
+.history-heading h2 { margin: 0; }
+.history-list { display: grid; gap: 6px; max-height: 300px; overflow: auto; }
+.history-item { display: grid; grid-template-columns: 42px 1fr auto; gap: 8px; align-items: center; width: 100%; text-align: left; background: #252525; border: 1px solid #444; padding: 8px; }
+.history-item:hover { border-color: #6aa8c5; }
+.history-item .seq { color: #8bd7ff; font-weight: bold; }
+.history-item .detail { color: #aaa; font-size: 12px; }
+.history-item .validity { text-transform: uppercase; font-size: 11px; }
+.history-item .validity.valid { color: #35d06f; }
+.history-item .validity.review { color: #ffd24a; }

@@ -456,6 +456,111 @@ function drawCurve(x, y, title, xLabel, yLabel) {
     ctx.fillText(yLabel, 0, 0); ctx.restore();
 }
 
+function renderMeasurementSummary(result) {
+    const saved = result.measurement;
+    if (!saved) return;
+    const cameraName = camera.options[camera.selectedIndex]?.textContent?.split(' — ')[0] || camera.value;
+    document.getElementById('measurement-summary').innerHTML =
+        `<strong>#${saved.sequence} ${cameraName}</strong> — ${modeLabel(result.mode)}<br>` +
+        `${frame.naturalWidth}×${frame.naturalHeight} • ${saved.summary} • ${saved.validity.toUpperCase()}`;
+}
+
+function modeLabel(value) {
+    return value === 'sbir_target' ? 'SBIR' : value === 'slanted_edge' ? 'Slanted edge' : 'USAF tri-bar';
+}
+
+function renderAnalysisResult(result) {
+if (result.mode === 'slanted_edge') {
+        document.getElementById('metrics').innerHTML =
+            metric('MTF50', frequency(result.mtf50_cycles_per_pixel)) +
+            metric('MTF20', frequency(result.mtf20_cycles_per_pixel)) +
+            metric('MTF10', frequency(result.mtf10_cycles_per_pixel)) +
+            metric('Edge slant', result.slant_degrees.toFixed(2) + '°') +
+            metric('Edge isolation', (100 * result.contrast_fraction).toFixed(0) + '%') +
+            metric('Valid', result.valid ? 'Yes' : 'Review');
+        drawCurve(
+            result.frequency_cycles_per_pixel, result.mtf,
+            'Normalized MTF', 'Spatial frequency (cycles/pixel)',
+            'Normalized response (unitless)'
+        );
+        status(result.warning || 'Slanted-edge measurement complete.', Boolean(result.warning));
+    } else if (result.mode === 'sbir_target') {
+        if (!result._history) renderResultGroups(result.groups);
+        const rows = result.groups.map((group, index) =>
+            `<tr><td>${index + 1}</td><td>${group.orientation}</td>` +
+            `<td>${(100 * group.modulation).toFixed(1)}%</td>` +
+            `<td>${group.dominant_frequency_cycles_per_pixel.toFixed(4)} cy/px</td>` +
+            `<td>${group.pixels_per_cycle ? group.pixels_per_cycle.toFixed(1) : '—'} px/cycle</td>` +
+            `<td>${(100 * (group.detection_confidence ?? 0)).toFixed(0)}%</td>` +
+            `<td>${group.valid ? 'Valid' : 'Review'}</td></tr>`
+        ).join('');
+        document.getElementById('metrics').innerHTML =
+            metric('Groups detected', result.groups.length) +
+            metric('Valid groups', result.valid_group_count) +
+            `<table class="group-results"><thead><tr><th>#</th><th>Bars</th>` +
+            `<th>Modulation</th><th>Frequency</th><th>Spacing</th><th>Confidence</th><th>Result</th></tr></thead>` +
+            `<tbody>${rows}</tbody></table>`;
+        const first = result.groups[0];
+        if (first) {
+            drawCurve(
+                first.profile.map((_, index) => index), first.profile,
+                'Group 1 mean bar profile', 'Position across group (pixels)',
+                'Relative intensity (DN)'
+            );
+        }
+        status(
+            result.warning || `Analyzed ${result.groups.length} SBIR bar groups.`,
+            Boolean(result.warning)
+        );
+    } else {
+        document.getElementById('metrics').innerHTML =
+            metric('Bar modulation', (100 * result.modulation).toFixed(1) + '%') +
+            metric('Dominant frequency', result.dominant_frequency_cycles_per_pixel.toFixed(4) + ' cy/px') +
+            metric('Orientation', result.orientation) + metric('Valid', result.valid ? 'Yes' : 'Review');
+        drawCurve(
+            result.profile.map((_, i) => i), result.profile,
+            'Mean bar profile', 'Position across ROI (pixels)',
+            'Relative intensity (DN)'
+        );
+        status(
+            result.warning || (result.perspective_rectified
+                ? 'Perspective-corrected USAF measurement complete.'
+                : 'USAF / tri-bar measurement complete.'),
+            Boolean(result.warning)
+        );
+    }
+    renderMeasurementSummary(result);
+}
+
+async function loadHistory() {
+    const data = await api('/api/mtf/history');
+    const host = document.getElementById('history');
+    if (!data.measurements.length) { host.textContent = 'No saved tests yet.'; return; }
+    host.innerHTML = data.measurements.map(item => {
+        const cam = item.camera?.name || item.camera?.id || 'Camera';
+        const when = item.created_at ? new Date(item.created_at).toLocaleString() : '';
+        return `<button class="history-item" data-id="${item.measurement_id}">` +
+            `<span class="seq">#${item.sequence}</span><span><strong>${cam} — ${modeLabel(item.mode)}</strong>` +
+            `<span class="detail">${item.width}×${item.height} • ${item.summary} • ${when}</span></span>` +
+            `<span class="validity ${item.validity}">${item.validity}</span></button>`;
+    }).join('');
+}
+
+async function openHistory(measurementId) {
+    const item = await api(`/api/mtf/history/${encodeURIComponent(measurementId)}`);
+    const result = item.result || {};
+    result.measurement = {sequence:item.sequence, summary:item.summary, validity:item.validity};
+    result._history = true;
+    frame.src = `/api/mtf/history/${encodeURIComponent(measurementId)}/annotated?t=${Date.now()}`;
+    document.getElementById('capture-info').textContent = `${item.width} × ${item.height} — saved measurement #${item.sequence}`;
+    renderAnalysisResult(result);
+    document.getElementById('measurement-summary').innerHTML =
+        `<strong>#${item.sequence} ${item.camera?.name || item.camera?.id || 'Camera'}</strong> — ${modeLabel(item.mode)}<br>` +
+        `${item.width}×${item.height} • ${item.summary} • ${item.validity.toUpperCase()}` +
+        `<br><a href="/api/mtf/captures/${encodeURIComponent(item.capture_id)}/image" target="_blank">Original capture</a>`;
+    status(`Loaded saved MTF measurement #${item.sequence}.`);
+}
+
 analyze.addEventListener('click', async () => {
     try {
         clearMeasurement();
@@ -464,77 +569,23 @@ analyze.addEventListener('click', async () => {
             body: JSON.stringify({
                 camera_id: camera.value,
                 mode: document.getElementById('mode').value,
-                roi,
-                roi_space: 'pixels',
-                quadrilateral: (
-                    document.getElementById('mode').value === 'usaf_bar' && outline.length === 4
-                        ? outline.map(point => [point.x, point.y])
-                        : null
-                )
+                roi, roi_space: 'pixels',
+                quadrilateral: (document.getElementById('mode').value === 'usaf_bar' && outline.length === 4
+                    ? outline.map(point => [point.x, point.y]) : null)
             })
         });
-        if (result.mode === 'slanted_edge') {
-            document.getElementById('metrics').innerHTML =
-                metric('MTF50', frequency(result.mtf50_cycles_per_pixel)) +
-                metric('MTF20', frequency(result.mtf20_cycles_per_pixel)) +
-                metric('MTF10', frequency(result.mtf10_cycles_per_pixel)) +
-                metric('Edge slant', result.slant_degrees.toFixed(2) + '°') +
-                metric('Edge isolation', (100 * result.contrast_fraction).toFixed(0) + '%') +
-                metric('Valid', result.valid ? 'Yes' : 'Review');
-            drawCurve(
-                result.frequency_cycles_per_pixel, result.mtf,
-                'Normalized MTF', 'Spatial frequency (cycles/pixel)',
-                'Normalized response (unitless)'
-            );
-            status(result.warning || 'Slanted-edge measurement complete.', Boolean(result.warning));
-        } else if (result.mode === 'sbir_target') {
-            renderResultGroups(result.groups);
-            const rows = result.groups.map((group, index) =>
-                `<tr><td>${index + 1}</td><td>${group.orientation}</td>` +
-                `<td>${(100 * group.modulation).toFixed(1)}%</td>` +
-                `<td>${group.dominant_frequency_cycles_per_pixel.toFixed(4)} cy/px</td>` +
-                `<td>${group.pixels_per_cycle ? group.pixels_per_cycle.toFixed(1) : '—'} px/cycle</td>` +
-                `<td>${(100 * (group.detection_confidence ?? 0)).toFixed(0)}%</td>` +
-                `<td>${group.valid ? 'Valid' : 'Review'}</td></tr>`
-            ).join('');
-            document.getElementById('metrics').innerHTML =
-                metric('Groups detected', result.groups.length) +
-                metric('Valid groups', result.valid_group_count) +
-                `<table class="group-results"><thead><tr><th>#</th><th>Bars</th>` +
-                `<th>Modulation</th><th>Frequency</th><th>Spacing</th><th>Confidence</th><th>Result</th></tr></thead>` +
-                `<tbody>${rows}</tbody></table>`;
-            const first = result.groups[0];
-            if (first) {
-                drawCurve(
-                    first.profile.map((_, index) => index), first.profile,
-                    'Group 1 mean bar profile', 'Position across group (pixels)',
-                    'Relative intensity (DN)'
-                );
-            }
-            status(
-                result.warning || `Analyzed ${result.groups.length} SBIR bar groups.`,
-                Boolean(result.warning)
-            );
-        } else {
-            document.getElementById('metrics').innerHTML =
-                metric('Bar modulation', (100 * result.modulation).toFixed(1) + '%') +
-                metric('Dominant frequency', result.dominant_frequency_cycles_per_pixel.toFixed(4) + ' cy/px') +
-                metric('Orientation', result.orientation) + metric('Valid', result.valid ? 'Yes' : 'Review');
-            drawCurve(
-                result.profile.map((_, i) => i), result.profile,
-                'Mean bar profile', 'Position across ROI (pixels)',
-                'Relative intensity (DN)'
-            );
-            status(
-                result.warning || (result.perspective_rectified
-                    ? 'Perspective-corrected USAF measurement complete.'
-                    : 'USAF / tri-bar measurement complete.'),
-                Boolean(result.warning)
-            );
-        }
+        renderAnalysisResult(result);
+        await loadHistory();
     } catch (error) { status(error.message, true); }
 });
 
+document.getElementById('history-refresh').addEventListener('click', () => loadHistory().catch(error => status(error.message, true)));
+document.getElementById('history').addEventListener('click', event => {
+    const button = event.target.closest('.history-item');
+    if (button) openHistory(button.dataset.id).catch(error => status(error.message, true));
+});
+
 loadCameras().catch(error => status(error.message, true));
+loadHistory().catch(error => status(error.message, true));
 
 applyModeUi();

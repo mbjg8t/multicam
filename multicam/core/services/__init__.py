@@ -5,6 +5,7 @@ from .camera_orientation import CameraOrientationStore
 from .focus import FocusSample, FocusService
 from .dsp import DspService, DspStatus
 from .mtf import MtfFrozenFrame, MtfService
+from .mtf_history import MtfHistoryStore
 
 __all__ = [
     "AlignmentService",
@@ -17,5 +18,6 @@ __all__ = [
     "DspService",
     "DspStatus",
     "MtfFrozenFrame",
+    "MtfHistoryStore",
     "MtfService",
 ]

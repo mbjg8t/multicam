@@ -31,7 +31,14 @@
                 <div id="selection"><i data-handle="nw"></i><i data-handle="ne"></i><i data-handle="sw"></i><i data-handle="se"></i></div>
             </div></div>
         </section>
-        <section class="results-panel"><h2>Measurement</h2><div id="metrics" class="metrics">No measurement yet.</div><canvas id="curve" width="700" height="360"></canvas><p id="mode-help" class="note"></p></section>
+        <section class="results-panel">
+            <h2>Measurement</h2>
+            <div id="measurement-summary" class="measurement-summary">No saved measurement yet.</div>
+            <div id="metrics" class="metrics">No measurement yet.</div>
+            <canvas id="curve" width="700" height="360"></canvas><p id="mode-help" class="note"></p>
+            <div class="history-heading"><h2>History</h2><button id="history-refresh">Refresh</button></div>
+            <div id="history" class="history-list">No saved tests yet.</div>
+        </section>
     </main>
     <script src="{{ url_for('static', filename='js/mtf.js') }}"></script>
 </body>

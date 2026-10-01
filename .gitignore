@@ -34,3 +34,6 @@ config/local.json
 # Local launcher runtime files
 .multicam.pid
 multicam.log
+
+# Local MTF measurement history
+data/mtf/

@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import io
 
-from flask import Blueprint, Response, jsonify, render_template, request
+from flask import Blueprint, Response, jsonify, render_template, request, send_file
 from PIL import Image
 
 
-def create_mtf_blueprint(*, manager, broker, mtf_service, compositor):
+def create_mtf_blueprint(*, manager, broker, mtf_service, compositor, history_store):
     blueprint = Blueprint("mtf", __name__)
 
     @blueprint.route("/mtf")
@@ -72,6 +72,53 @@ def create_mtf_blueprint(*, manager, broker, mtf_service, compositor):
             )
         except (KeyError, TypeError, ValueError) as exc:
             return jsonify({"error": str(exc)}), 400
+        frame = mtf_service.get_frozen(str(data["camera_id"]))
+        image = mtf_service.get_oriented_image(str(data["camera_id"]))
+        camera_info = next((camera for camera in manager.list_cameras() if camera.id == str(data["camera_id"])), None)
+        camera_meta = {
+            "id": str(data["camera_id"]),
+            "name": getattr(camera_info, "name", str(data["camera_id"])),
+            "model": getattr(camera_info, "model", ""),
+            "backend": getattr(camera_info, "backend", ""),
+        }
+        if frame is not None and image is not None:
+            measurement = history_store.save_measurement(
+                frame=frame, image=image, camera=camera_meta, mode=str(data["mode"]),
+                roi=result.get("roi_pixels"), quadrilateral=data.get("quadrilateral"), result=result,
+            )
+            result["measurement"] = {
+                "measurement_id": measurement["measurement_id"],
+                "sequence": measurement["sequence"],
+                "capture_id": measurement["capture_id"],
+                "created_at": measurement["created_at"],
+                "validity": measurement["validity"],
+                "summary": measurement["summary"],
+            }
         return jsonify(result)
+
+    @blueprint.route("/api/mtf/history")
+    def mtf_history_api():
+        return jsonify({"measurements": history_store.list_measurements()})
+
+    @blueprint.route("/api/mtf/history/<measurement_id>")
+    def mtf_history_detail_api(measurement_id):
+        item = history_store.get_measurement(measurement_id)
+        if item is None:
+            return jsonify({"error": "Measurement not found"}), 404
+        return jsonify(item)
+
+    @blueprint.route("/api/mtf/history/<measurement_id>/annotated")
+    def mtf_history_annotated_api(measurement_id):
+        path = history_store.annotated_image_path(measurement_id)
+        if path is None:
+            return jsonify({"error": "Annotated image not found"}), 404
+        return send_file(path, mimetype="image/jpeg")
+
+    @blueprint.route("/api/mtf/captures/<capture_id>/image")
+    def mtf_capture_image_api(capture_id):
+        path = history_store.capture_image_path(capture_id)
+        if path is None:
+            return jsonify({"error": "Capture not found"}), 404
+        return send_file(path, mimetype="image/png")
 
     return blueprint
