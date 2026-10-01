@@ -64,8 +64,8 @@ class FakeCv2:
 
     @staticmethod
     def VideoWriter_fourcc(*characters):
-        assert characters == ("Y", "1", "6", " ")
-        return 0x20363159
+        assert characters == ("I", "4", "2", "0")
+        return 0x30323449
 
     @staticmethod
     def cvtColor(image, code):

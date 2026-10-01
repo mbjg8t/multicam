@@ -108,17 +108,14 @@ class BosonDevice(CameraDevice):
         capture = self._new_capture()
         width, height = self.info.metadata["capture_size"]
         cv2 = self._opencv()
-        # The Boson advertises YU12, Y16 and NV12 on the same UVC node.
-        # Explicitly request radiometric Y16 before setting geometry; otherwise
-        # OpenCV may silently select an 8-bit/YUV mode or expose each Y16 byte
-        # as a separate horizontal pixel (1280x514 for a 640x514 sensor).
+        # Use the Boson's standard 8-bit YUV display stream with OpenCV. Some
+        # Boson firmware/uvcvideo combinations reset the USB device when Y16 is
+        # negotiated through OpenCV. Raw Y16 belongs in a dedicated V4L2 path.
         if hasattr(cv2, "CAP_PROP_FOURCC") and hasattr(cv2, "VideoWriter_fourcc"):
             capture.set(
                 cv2.CAP_PROP_FOURCC,
-                cv2.VideoWriter_fourcc("Y", "1", "6", " "),
+                cv2.VideoWriter_fourcc("I", "4", "2", "0"),
             )
-        if hasattr(cv2, "CAP_PROP_CONVERT_RGB"):
-            capture.set(cv2.CAP_PROP_CONVERT_RGB, 0)
         capture.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         capture.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
         if not capture.isOpened():
@@ -312,7 +309,13 @@ class BosonBackend(CameraBackend):
                     "v4l2-ctl", "-d", device_path, "--list-formats-ext"
                 ])
                 sizes = _parse_sizes(formats.stdout + formats.stderr)
-                capture_size = next((size for size in sizes if size in BOSON_SIZES), None)
+                # Prefer the conventional display frame. The 514-line mode
+                # carries telemetry rows and is mainly useful with raw Y16.
+                capture_size = next(
+                    (size for size in ((640, 512), (320, 256), (640, 514))
+                     if size in sizes),
+                    None,
+                )
                 if capture_size is None:
                     continue
                 camera_id = f"boson:{device_path}"
