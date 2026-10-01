@@ -469,6 +469,13 @@ class Picamera2Backend(CameraBackend):
             camera_num = item.get("Num")
             camera_path = item.get("Id")
 
+            # libcamera can enumerate FLIR UVC devices, but its Picamera2 path
+            # interprets the Boson's packed Y16 stream as a 1280-pixel-wide
+            # image. Leave these devices exclusively to the Boson backend.
+            model_text = str(model or "").lower()
+            if "boson" in model_text or "flir" in model_text:
+                continue
+
             persistent_part = (
                 str(camera_path)
                 if camera_path is not None

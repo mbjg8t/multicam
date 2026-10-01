@@ -108,6 +108,17 @@ class BosonDevice(CameraDevice):
         capture = self._new_capture()
         width, height = self.info.metadata["capture_size"]
         cv2 = self._opencv()
+        # The Boson advertises YU12, Y16 and NV12 on the same UVC node.
+        # Explicitly request radiometric Y16 before setting geometry; otherwise
+        # OpenCV may silently select an 8-bit/YUV mode or expose each Y16 byte
+        # as a separate horizontal pixel (1280x514 for a 640x514 sensor).
+        if hasattr(cv2, "CAP_PROP_FOURCC") and hasattr(cv2, "VideoWriter_fourcc"):
+            capture.set(
+                cv2.CAP_PROP_FOURCC,
+                cv2.VideoWriter_fourcc("Y", "1", "6", " "),
+            )
+        if hasattr(cv2, "CAP_PROP_CONVERT_RGB"):
+            capture.set(cv2.CAP_PROP_CONVERT_RGB, 0)
         capture.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         capture.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
         if not capture.isOpened():
@@ -177,9 +188,19 @@ class BosonDevice(CameraDevice):
 
     def _to_gray(self, image: np.ndarray) -> np.ndarray:
         if image.ndim == 2:
+            expected_width = int(self.info.metadata["capture_size"][0])
+            if image.dtype == np.uint8 and image.shape[1] == expected_width * 2:
+                return np.ascontiguousarray(image).view("<u2").reshape(
+                    image.shape[0], expected_width
+                )
             return image
         if image.ndim == 3 and image.shape[2] == 1:
             return image[:, :, 0]
+        if image.ndim == 3 and image.dtype == np.uint8 and image.shape[2] == 2:
+            return (
+                image[:, :, 0].astype(np.uint16)
+                | (image[:, :, 1].astype(np.uint16) << 8)
+            )
         if image.ndim == 3 and image.shape[2] >= 3:
             return self._opencv().cvtColor(image[:, :, :3], self._opencv().COLOR_BGR2GRAY)
         raise ValueError(f"Unsupported Boson frame shape: {image.shape}")

@@ -51,6 +51,8 @@ def test_backend_only_discovers_boson_image_nodes():
 class FakeCv2:
     CAP_PROP_FRAME_WIDTH = 3
     CAP_PROP_FRAME_HEIGHT = 4
+    CAP_PROP_FOURCC = 6
+    CAP_PROP_CONVERT_RGB = 16
     COLOR_BGR2GRAY = 6
     COLOR_BGR2RGB = 4
     COLORMAP_INFERNO = 14
@@ -59,6 +61,11 @@ class FakeCv2:
     COLORMAP_MAGMA = 13
     COLORMAP_HOT = 11
     COLORMAP_BONE = 1
+
+    @staticmethod
+    def VideoWriter_fourcc(*characters):
+        assert characters == ("Y", "1", "6", " ")
+        return 0x20363159
 
     @staticmethod
     def cvtColor(image, code):
@@ -112,6 +119,17 @@ def test_boson_frame_is_cropped_colormapped_and_released():
     assert frame.image.shape == (512, 640, 3)
     assert frame.pixel_format == "RGB888"
     assert capture.released is True
+
+
+def test_boson_decodes_byte_wide_y16_without_doubling_width():
+    source = np.arange(514 * 640, dtype=np.uint16).reshape(514, 640)
+    packed = source.view(np.uint8).reshape(514, 1280)
+    device, _ = make_device(packed)
+    device.start()
+    gray = device._to_gray(packed)
+    assert gray.shape == (514, 640)
+    assert gray.dtype == np.uint16
+    np.testing.assert_array_equal(gray, source)
 
 
 def test_boson_controls_validate_ranges_and_palette():
