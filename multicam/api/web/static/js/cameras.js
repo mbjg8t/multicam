@@ -567,6 +567,10 @@ const cameraControlTimers = new Map();
 
 
 function cameraControlSection(capability) {
+    if (capability.metadata && capability.metadata.section) {
+        return capability.metadata.section;
+    }
+
     const id = capability.id;
 
     if (

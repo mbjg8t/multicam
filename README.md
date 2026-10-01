@@ -8,7 +8,7 @@ is designed to remain reusable on NVIDIA Jetson, Linux PCs, and Windows PCs.
 
 Implemented:
 
-- Picamera2 and Aravis/GenICam camera backends
+- Picamera2, Aravis/GenICam, and FLIR Boson UVC camera backends
 - generic camera discovery and persistent identities
 - central concurrent acquisition through `CameraManager` and `FrameBroker`
 - generic 0..N camera layers and live compositing
@@ -28,7 +28,6 @@ Implemented:
 
 Planned but not yet integrated:
 
-- FLIR Boson backend
 - runtime hot-plug reconciliation
 - persistent alignment and lens-calibration profiles
 - persistent/reorderable DSP profiles and accelerated processor providers
@@ -44,7 +43,7 @@ PyGObject/Aravis packages installed by APT.
 clear
 sudo apt update
 sudo apt install -y python3-venv python3-picamera2 python3-gi \
-  gir1.2-aravis-0.8 aravis-tools
+  gir1.2-aravis-0.8 aravis-tools v4l-utils python3-opencv
 ```
 
 From the repository:

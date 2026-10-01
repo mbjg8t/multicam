@@ -1,0 +1,20 @@
+{
+  "name": "boson-default",
+  "camera": {
+    "backend": "boson",
+    "model": "Boson",
+    "vendor": "Teledyne FLIR"
+  },
+  "controls": {
+    "colormap": "inferno",
+    "auto_contrast": true,
+    "contrast_low_percentile": 1.0,
+    "contrast_high_percentile": 99.0,
+    "crop_telemetry_rows": true
+  },
+  "orientation": {
+    "rotation_deg": 0,
+    "flip_horizontal": false,
+    "flip_vertical": false
+  }
+}
