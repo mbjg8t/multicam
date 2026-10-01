@@ -21,26 +21,10 @@ html, body {
     gap: 10px;
 }
 
-.quick-alignment {
+.tool-buttons {
     display: flex;
-    gap: 8px;
+    gap: 6px;
     margin-left: auto;
-}
-
-.quick-alignment label {
-    color: #bbb;
-    font-size: 12px;
-}
-
-select {
-    display: block;
-    max-width: 180px;
-    margin-top: 2px;
-    border: 1px solid #666;
-    border-radius: 3px;
-    background: #333;
-    color: white;
-    padding: 3px 6px;
 }
 
 .camera-strip {
@@ -122,10 +106,11 @@ select {
         flex-wrap: wrap;
     }
 
-    .quick-alignment {
+    .tool-buttons {
         order: 3;
         width: 100%;
         margin-left: 0;
+        flex-wrap: wrap;
     }
 }
 
@@ -153,6 +138,7 @@ button:disabled {
 }
 
 .viewer {
+    position: relative;
     flex: 1;
     display: flex;
     align-items: center;
@@ -160,10 +146,52 @@ button:disabled {
     overflow: hidden;
     padding: 10px;
     box-sizing: border-box;
+    touch-action: none;
+    user-select: none;
 }
 
 .viewer img {
     max-width: 100%;
     max-height: 100%;
     object-fit: contain;
+    transform-origin: center center;
+    will-change: transform;
+    cursor: zoom-in;
+}
+
+.viewer.zoomed img {
+    cursor: grab;
+}
+
+.viewer.dragging img {
+    cursor: grabbing;
+}
+
+.zoom-controls {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    padding: 3px;
+    border: 1px solid #555;
+    border-radius: 5px;
+    background: rgba(24, 24, 24, 0.82);
+    backdrop-filter: blur(2px);
+}
+
+.zoom-controls button {
+    min-width: 27px;
+    height: 27px;
+    padding: 0 7px;
+    line-height: 1;
+}
+
+#zoom-label {
+    min-width: 43px;
+    color: #8bd7ff;
+    font-size: 12px;
+    text-align: center;
 }

@@ -11,32 +11,25 @@
         <div class="header">
             <div class="title">Multicam 1.0</div>
 
-            <button onclick="window.open('/cameras', 'multicam-cameras')">
-                Cameras
-            </button>
-
-            <div class="quick-alignment">
-                <label>
-                    Align to
-                    <select id="reference-camera"></select>
-                </label>
-
-                <label>
-                    Transform
-                    <select id="target-camera"></select>
-                </label>
-            </div>
-
-            <button id="open-alignment">Alignment</button>
-            <button id="open-focus">Focus</button>
-            <button id="open-dsp">DSP</button>
-            <button onclick="window.open('/mtf', 'multicam-mtf')">MTF</button>
+            <nav class="tool-buttons" aria-label="Multicam tools">
+                <button onclick="window.open('/cameras', 'multicam-cameras')">Cameras</button>
+                <button id="open-alignment">Alignment</button>
+                <button id="open-focus">Focus</button>
+                <button id="open-dsp">DSP</button>
+                <button onclick="window.open('/mtf', 'multicam-mtf')">MTF</button>
+            </nav>
         </div>
 
         <div id="camera-strip" class="camera-strip"></div>
 
-        <div class="viewer">
-            <img src="/stream">
+        <div id="viewer" class="viewer">
+            <img id="live-image" src="/stream" draggable="false">
+            <div class="zoom-controls" aria-label="Live view zoom controls">
+                <button id="zoom-out" title="Zoom out">−</button>
+                <span id="zoom-label">100%</span>
+                <button id="zoom-in" title="Zoom in">+</button>
+                <button id="zoom-fit" title="Fit image">Fit</button>
+            </div>
         </div>
     </div>
 

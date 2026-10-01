@@ -17,28 +17,6 @@ function cameraLabel(camera) {
         : camera.name;
 }
 
-function fillSelect(element, selectedId, otherId) {
-    const priorFocus = document.activeElement === element;
-    element.replaceChildren();
-
-    for (const camera of alignmentState.cameras) {
-        const option = document.createElement('option');
-        option.value = camera.id;
-        option.textContent = cameraLabel(camera);
-        option.disabled = (
-            !camera.running || !camera.has_frame || camera.id === otherId
-        );
-        option.selected = camera.id === selectedId;
-        element.append(option);
-    }
-
-    element.disabled = alignmentState.cameras.length < 2;
-
-    if (priorFocus) {
-        element.focus();
-    }
-}
-
 function renderCameraStrip() {
     const strip = document.getElementById('camera-strip');
     strip.replaceChildren();
@@ -87,51 +65,12 @@ function renderCameraStrip() {
         chip.append(dot, name, badge, alignmentBadge);
         chip.title = camera.last_error || camera.alignment_status;
         chip.disabled = !camera.running || !camera.has_frame;
-        chip.addEventListener('click', () => selectTarget(camera.id));
         strip.append(chip);
     }
 }
 
 function renderAlignmentState() {
-    fillSelect(
-        document.getElementById('reference-camera'),
-        alignmentState.reference_camera_id,
-        alignmentState.target_camera_id
-    );
-    fillSelect(
-        document.getElementById('target-camera'),
-        alignmentState.target_camera_id,
-        alignmentState.reference_camera_id
-    );
     renderCameraStrip();
-}
-
-async function updateSelection(referenceId, targetId) {
-    if (!referenceId || !targetId || referenceId === targetId) {
-        return;
-    }
-
-    try {
-        alignmentState = await alignmentApi('/api/alignment/selection', {
-            method: 'PATCH',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                reference_camera_id: referenceId,
-                target_camera_id: targetId
-            })
-        });
-        renderAlignmentState();
-    } catch (error) {
-        window.alert(error.message);
-        await refreshAlignment();
-    }
-}
-
-function selectTarget(cameraId) {
-    if (!alignmentState || cameraId === alignmentState.reference_camera_id) {
-        return;
-    }
-    updateSelection(alignmentState.reference_camera_id, cameraId);
 }
 
 async function refreshAlignment() {
@@ -142,14 +81,6 @@ async function refreshAlignment() {
         console.error('Unable to load camera status:', error);
     }
 }
-
-document.getElementById('reference-camera').addEventListener('change', event => {
-    updateSelection(event.target.value, alignmentState.target_camera_id);
-});
-
-document.getElementById('target-camera').addEventListener('change', event => {
-    updateSelection(alignmentState.reference_camera_id, event.target.value);
-});
 
 document.getElementById('open-alignment').addEventListener('click', () => {
     window.open('/alignment', 'multicam-alignment');
@@ -162,6 +93,88 @@ document.getElementById('open-focus').addEventListener('click', () => {
 document.getElementById('open-dsp').addEventListener('click', () => {
     window.open('/dsp', 'multicam-dsp');
 });
+
+const viewer = document.getElementById('viewer');
+const liveImage = document.getElementById('live-image');
+const zoomLabel = document.getElementById('zoom-label');
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 16;
+let zoom = 1;
+let panX = 0;
+let panY = 0;
+let dragStart = null;
+
+function renderZoom() {
+    liveImage.style.transform =
+        `translate(${panX}px, ${panY}px) scale(${zoom})`;
+    zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
+    viewer.classList.toggle('zoomed', zoom > 1.001);
+}
+
+function setZoom(nextZoom, clientX = null, clientY = null) {
+    nextZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, nextZoom));
+    if (Math.abs(nextZoom - zoom) < 0.0001) return;
+
+    if (clientX !== null && clientY !== null) {
+        const bounds = viewer.getBoundingClientRect();
+        const pointerX = clientX - (bounds.left + bounds.width / 2);
+        const pointerY = clientY - (bounds.top + bounds.height / 2);
+        const ratio = nextZoom / zoom;
+        panX = pointerX - (pointerX - panX) * ratio;
+        panY = pointerY - (pointerY - panY) * ratio;
+    } else if (nextZoom === MIN_ZOOM) {
+        panX = 0;
+        panY = 0;
+    }
+
+    zoom = nextZoom;
+    renderZoom();
+}
+
+function resetZoom() {
+    zoom = 1;
+    panX = 0;
+    panY = 0;
+    renderZoom();
+}
+
+viewer.addEventListener('wheel', event => {
+    event.preventDefault();
+    const factor = Math.exp(-event.deltaY * 0.0015);
+    setZoom(zoom * factor, event.clientX, event.clientY);
+}, {passive: false});
+
+liveImage.addEventListener('pointerdown', event => {
+    if (zoom <= 1) return;
+    dragStart = {x: event.clientX, y: event.clientY, panX, panY};
+    liveImage.setPointerCapture(event.pointerId);
+    viewer.classList.add('dragging');
+});
+
+liveImage.addEventListener('pointermove', event => {
+    if (!dragStart) return;
+    panX = dragStart.panX + event.clientX - dragStart.x;
+    panY = dragStart.panY + event.clientY - dragStart.y;
+    renderZoom();
+});
+
+function endDrag(event) {
+    if (!dragStart) return;
+    dragStart = null;
+    viewer.classList.remove('dragging');
+    if (liveImage.hasPointerCapture(event.pointerId)) {
+        liveImage.releasePointerCapture(event.pointerId);
+    }
+}
+
+liveImage.addEventListener('pointerup', endDrag);
+liveImage.addEventListener('pointercancel', endDrag);
+liveImage.addEventListener('dblclick', resetZoom);
+document.getElementById('zoom-in').addEventListener('click', () => setZoom(zoom * 1.25));
+document.getElementById('zoom-out').addEventListener('click', () => setZoom(zoom / 1.25));
+document.getElementById('zoom-fit').addEventListener('click', resetZoom);
+
+renderZoom();
 
 refreshAlignment();
 setInterval(refreshAlignment, 1500);
