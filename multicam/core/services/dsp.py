@@ -110,6 +110,33 @@ class DspService:
 
         return self.broker.get_latest(camera_id)
 
+    def get_preview_frame(self, camera_id: str) -> Frame | None:
+        """Render the current DSP settings without enabling live-view routing."""
+        frame = self.broker.get_latest(camera_id)
+        if frame is None:
+            return None
+        config = self.store.get(camera_id)
+        image = self.pipeline.process(frame.image, config)
+        metadata = dict(frame.metadata)
+        metadata["dsp"] = {
+            "pipeline": "preview",
+            "revision": config.revision,
+            "geometry_preserving": True,
+        }
+        return Frame(
+            camera_id=frame.camera_id,
+            image=image,
+            timestamp_ns=frame.timestamp_ns,
+            monotonic_timestamp_ns=frame.monotonic_timestamp_ns,
+            device_timestamp_ns=frame.device_timestamp_ns,
+            width=image.shape[1],
+            height=image.shape[0],
+            pixel_format="RGB8",
+            bit_depth=8,
+            frame_number=frame.frame_number,
+            metadata=metadata,
+        )
+
     def get_status(self, camera_id: str) -> DspStatus:
         with self._lock:
             status = self._statuses.get(camera_id)

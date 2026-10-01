@@ -112,7 +112,7 @@ def create_dsp_blueprint(
             last_key = None
             while True:
                 frame = (
-                    dsp_service.get_frame(camera_id)
+                    dsp_service.get_preview_frame(camera_id)
                     if variant == "processed"
                     else broker.get_latest(camera_id)
                 )

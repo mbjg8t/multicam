@@ -153,6 +153,23 @@ def test_dsp_service_publishes_variant_without_replacing_broker_frame():
         service.stop_all()
 
 
+def test_dsp_preview_processes_settings_while_live_routing_is_disabled():
+    source = np.zeros((4, 4, 3), dtype=np.uint8)
+    source[:, 2:] = 100
+    frame = Frame(camera_id="camera:A", image=source, frame_number=3)
+    broker = LatestFrameBroker(frame)
+    store = DspPipelineStore()
+    store.update("camera:A", enabled=False, invert=True)
+    service = DspService(broker, store)
+
+    preview = service.get_preview_frame("camera:A")
+
+    assert service.get_frame("camera:A") is frame
+    assert preview is not None
+    assert np.array_equal(preview.image, 255 - source)
+    assert preview.metadata["dsp"]["pipeline"] == "preview"
+
+
 def test_live_view_selects_dsp_variant_for_layer_compositing():
     raw = Frame(
         camera_id="camera:A",
