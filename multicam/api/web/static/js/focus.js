@@ -10,9 +10,50 @@ let roi = {x: 0.5, y: 0.5, size: 0.25};
 const cameraSelect = document.getElementById('focus-camera');
 const focusImage = document.getElementById('focus-image');
 const focusStage = document.getElementById('focus-stage');
+const focusImageLayer = document.getElementById('focus-image-layer');
 const overlay = document.getElementById('roi-overlay');
 const roiPreview = document.getElementById('roi-preview');
 const chart = document.getElementById('focus-chart');
+const zoomLabel = document.getElementById('zoom-label');
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 16;
+let zoom = 1;
+let panX = 0;
+let panY = 0;
+let dragStart = null;
+let suppressRoiClick = false;
+
+function renderZoom() {
+    focusImageLayer.style.transform =
+        `translate(${panX}px, ${panY}px) scale(${zoom})`;
+    zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
+    focusStage.classList.toggle('zoomed', zoom > 1.001);
+}
+
+function setZoom(nextZoom, clientX = null, clientY = null) {
+    nextZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, nextZoom));
+    if (Math.abs(nextZoom - zoom) < 0.0001) return;
+    if (clientX !== null && clientY !== null) {
+        const bounds = focusStage.getBoundingClientRect();
+        const pointerX = clientX - (bounds.left + bounds.width / 2);
+        const pointerY = clientY - (bounds.top + bounds.height / 2);
+        const ratio = nextZoom / zoom;
+        panX = pointerX - (pointerX - panX) * ratio;
+        panY = pointerY - (pointerY - panY) * ratio;
+    } else if (nextZoom === MIN_ZOOM) {
+        panX = 0;
+        panY = 0;
+    }
+    zoom = nextZoom;
+    renderZoom();
+}
+
+function resetZoom() {
+    zoom = 1;
+    panX = 0;
+    panY = 0;
+    renderZoom();
+}
 
 async function api(path, options = {}) {
     const response = await fetch(path, options);
@@ -65,6 +106,7 @@ function selectCamera(cameraId) {
     selectedCameraId = cameraId;
     cameraSelect.value = cameraId;
     focusImage.src = `/focus/stream/${encodeURIComponent(cameraId)}?t=${Date.now()}`;
+    resetZoom();
     renderFocusControls();
     resetTracking('Camera selected. Click the image to place the focus ROI.');
 }
@@ -425,14 +467,24 @@ function drawChart() {
 }
 
 focusStage.addEventListener('click', event => {
+    if (suppressRoiClick || event.target.closest('.zoom-controls')) {
+        suppressRoiClick = false;
+        return;
+    }
     const displayed = displayedImageRect();
 
     if (!displayed) {
         return;
     }
 
-    const x = event.clientX - displayed.stage.left - displayed.left;
-    const y = event.clientY - displayed.stage.top - displayed.top;
+    const stageX = event.clientX - displayed.stage.left;
+    const stageY = event.clientY - displayed.stage.top;
+    const centerX = displayed.stage.width / 2;
+    const centerY = displayed.stage.height / 2;
+    const unzoomedX = (stageX - centerX - panX) / zoom + centerX;
+    const unzoomedY = (stageY - centerY - panY) / zoom + centerY;
+    const x = unzoomedX - displayed.left;
+    const y = unzoomedY - displayed.top;
 
     if (x < 0 || y < 0 || x >= displayed.width || y >= displayed.height) {
         return;
@@ -443,6 +495,59 @@ focusStage.addEventListener('click', event => {
     resetTracking('Focus ROI moved; peak and trend reset.');
     sampleFocus();
 });
+
+focusStage.addEventListener('wheel', event => {
+    event.preventDefault();
+    setZoom(
+        zoom * Math.exp(-event.deltaY * 0.0015),
+        event.clientX,
+        event.clientY
+    );
+}, {passive: false});
+
+focusImageLayer.addEventListener('pointerdown', event => {
+    if (zoom <= 1) return;
+    dragStart = {
+        x: event.clientX,
+        y: event.clientY,
+        panX,
+        panY,
+        moved: false
+    };
+    focusImageLayer.setPointerCapture(event.pointerId);
+    focusStage.classList.add('dragging');
+});
+
+focusImageLayer.addEventListener('pointermove', event => {
+    if (!dragStart) return;
+    const dx = event.clientX - dragStart.x;
+    const dy = event.clientY - dragStart.y;
+    dragStart.moved ||= Math.hypot(dx, dy) > 3;
+    panX = dragStart.panX + dx;
+    panY = dragStart.panY + dy;
+    renderZoom();
+});
+
+function endZoomDrag(event) {
+    if (!dragStart) return;
+    suppressRoiClick = dragStart.moved;
+    dragStart = null;
+    focusStage.classList.remove('dragging');
+    if (focusImageLayer.hasPointerCapture(event.pointerId)) {
+        focusImageLayer.releasePointerCapture(event.pointerId);
+    }
+}
+
+focusImageLayer.addEventListener('pointerup', endZoomDrag);
+focusImageLayer.addEventListener('pointercancel', endZoomDrag);
+focusImageLayer.addEventListener('dblclick', event => {
+    event.preventDefault();
+    suppressRoiClick = true;
+    resetZoom();
+});
+document.getElementById('zoom-in').addEventListener('click', () => setZoom(zoom * 1.25));
+document.getElementById('zoom-out').addEventListener('click', () => setZoom(zoom / 1.25));
+document.getElementById('zoom-fit').addEventListener('click', resetZoom);
 
 cameraSelect.addEventListener('change', event => selectCamera(event.target.value));
 
@@ -461,5 +566,6 @@ window.addEventListener('resize', () => {
 });
 
 refreshCameras();
+renderZoom();
 setInterval(refreshCameras, 2000);
 setInterval(sampleFocus, 125);

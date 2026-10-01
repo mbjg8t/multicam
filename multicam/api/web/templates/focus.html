@@ -43,8 +43,16 @@
         <section class="live-panel">
             <h3>Live camera — click to position ROI</h3>
             <div id="focus-stage" class="image-stage">
-                <img id="focus-image" alt="Live focus camera">
-                <canvas id="roi-overlay"></canvas>
+                <div id="focus-image-layer" class="focus-image-layer">
+                    <img id="focus-image" alt="Live focus camera" draggable="false">
+                    <canvas id="roi-overlay"></canvas>
+                </div>
+                <div class="zoom-controls" aria-label="Focus view zoom controls">
+                    <button id="zoom-out" title="Zoom out">−</button>
+                    <span id="zoom-label">100%</span>
+                    <button id="zoom-in" title="Zoom in">+</button>
+                    <button id="zoom-fit" title="Fit image">Fit</button>
+                </div>
                 <span class="empty-label">Waiting for a streaming camera</span>
             </div>
         </section>
