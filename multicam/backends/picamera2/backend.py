@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from threading import RLock
 
 from multicam.core.cameras import (
     CameraBackend,
@@ -40,70 +41,122 @@ class Picamera2Device(CameraDevice):
             )
 
         self._camera = Picamera2(camera_num)
+        self._io_lock = RLock()
 
-        self._preview_size = (1280, 960)
-        self._preview_sizes = self._supported_preview_sizes()
+        self._sensor_modes = self._read_sensor_modes()
+        self._preview_sizes = list(dict.fromkeys(
+            mode["size"] for mode in self._sensor_modes
+        ))
+        if not self._preview_sizes:
+            self._preview_sizes = self._supported_preview_sizes()
+        preferred = (1920, 1080)
+        self._preview_size = (
+            preferred if preferred in self._preview_sizes
+            else self._preview_sizes[0]
+        )
         self._configure_preview(self._preview_size)
 
         self._running = False
         self._frame_number = 0
 
-    def _maximum_sensor_size(self):
-        modes = getattr(self._camera, "sensor_modes", ()) or ()
-        sizes = [tuple(mode["size"]) for mode in modes if mode.get("size")]
-        return max(sizes, key=lambda size: size[0] * size[1], default=None)
+    def _read_sensor_modes(self):
+        """Normalize the real libcamera sensor modes reported by Picamera2."""
+        normalized = []
+        seen = set()
+        for raw in (getattr(self._camera, "sensor_modes", ()) or ()):
+            size = raw.get("size")
+            if not size:
+                continue
+            size = tuple(size)
+            key = (size, raw.get("bit_depth"), str(raw.get("format") or ""))
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized.append({
+                "size": size,
+                "fps": raw.get("fps"),
+                "bit_depth": raw.get("bit_depth"),
+                "format": str(raw.get("format") or ""),
+                "crop_limits": tuple(raw.get("crop_limits") or ()),
+            })
+        return normalized
 
-    def capture_calibration_frame(self):
-        """Capture one maximum-resolution still, then restore live preview."""
-        maximum_size = self._maximum_sensor_size()
-        if maximum_size is None:
-            return None
-
-        still_config = self._camera.create_still_configuration(
-            main={"size": maximum_size, "format": "RGB888"}
+    def _maximum_sensor_mode(self):
+        modes = self._sensor_modes or self._read_sensor_modes()
+        return max(
+            modes,
+            key=lambda mode: mode["size"][0] * mode["size"][1],
+            default=None,
         )
 
-        try:
-            self._camera.configure(still_config)
-            self._camera.start()
-            image = self._camera.capture_array("main")
-            metadata = dict(self._camera.capture_metadata())
-            timestamp_ns = time.time_ns()
-            monotonic_ns = time.monotonic_ns()
-        finally:
-            try:
+    def _sensor_mode_for_size(self, size):
+        modes = [m for m in getattr(self, "_sensor_modes", []) if m["size"] == tuple(size)]
+        if not modes:
+            return None
+        return max(modes, key=lambda m: int(m.get("bit_depth") or 0))
+
+    def capture_calibration_frame(self):
+        """Capture one maximum-resolution still and restore the live stream."""
+        maximum_mode = self._maximum_sensor_mode()
+        if maximum_mode is None:
+            return None
+        maximum_size = maximum_mode["size"]
+        sensor = {"output_size": maximum_size}
+        if maximum_mode.get("bit_depth"):
+            sensor["bit_depth"] = maximum_mode["bit_depth"]
+
+        with self._io_lock:
+            was_running = self._running
+            if was_running:
                 self._camera.stop()
+            try:
+                still_config = self._camera.create_still_configuration(
+                    main={"size": maximum_size, "format": "RGB888"},
+                    sensor=sensor,
+                )
+                self._camera.configure(still_config)
+                self._camera.start()
+                image = self._camera.capture_array("main")
+                metadata = dict(self._camera.capture_metadata())
+                timestamp_ns = time.time_ns()
+                monotonic_ns = time.monotonic_ns()
             finally:
-                self._configure_preview(self._preview_size)
+                try:
+                    self._camera.stop()
+                finally:
+                    self._configure_preview(self._preview_size)
+                    if was_running:
+                        self._camera.start()
 
         height, width = image.shape[:2]
         metadata.update({
-            "capture_purpose": "alignment_calibration",
+            "capture_purpose": "high_quality_still",
             "capture_quality": "maximum_sensor_resolution",
             "live_preview_size": self._preview_size,
             "sensor_capture_size": (width, height),
+            "sensor_bit_depth": maximum_mode.get("bit_depth"),
+            "sensor_format": maximum_mode.get("format"),
+            "sensor_crop_limits": maximum_mode.get("crop_limits"),
         })
         self._frame_number += 1
         return Frame(
-            camera_id=self.id,
-            image=image,
-            timestamp_ns=timestamp_ns,
-            monotonic_timestamp_ns=monotonic_ns,
-            width=width,
-            height=height,
-            pixel_format="RGB888",
-            bit_depth=8,
-            frame_number=self._frame_number,
-            metadata=metadata,
+            camera_id=self.id, image=image, timestamp_ns=timestamp_ns,
+            monotonic_timestamp_ns=monotonic_ns, width=width, height=height,
+            pixel_format="RGB888", bit_depth=8,
+            frame_number=self._frame_number, metadata=metadata,
         )
 
     def _configure_preview(self, size):
-        config = self._camera.create_preview_configuration(
-            main={
-                "size": size,
-                "format": "RGB888",
-            }
-        )
+        mode = self._sensor_mode_for_size(size)
+        kwargs = {
+            "main": {"size": size, "format": "RGB888"},
+        }
+        if mode is not None:
+            sensor = {"output_size": size}
+            if mode.get("bit_depth"):
+                sensor["bit_depth"] = mode["bit_depth"]
+            kwargs["sensor"] = sensor
+        config = self._camera.create_preview_configuration(**kwargs)
         self._camera.configure(config)
 
     def _supported_preview_sizes(self):
@@ -159,8 +212,9 @@ class Picamera2Device(CameraDevice):
 
         # Picamera2 capture_array is synchronous.
         # FrameBroker will later run acquisition in its own worker.
-        image = self._camera.capture_array("main")
-        metadata = self._camera.capture_metadata()
+        with self._io_lock:
+            image = self._camera.capture_array("main")
+            metadata = self._camera.capture_metadata()
 
         self._frame_number += 1
 
@@ -268,6 +322,31 @@ class Picamera2Device(CameraDevice):
                     metadata={"purpose": "focus"},
                 )
             )
+
+        if getattr(self, "_sensor_modes", None):
+            maximum = self._maximum_sensor_mode()
+            mode_lines = []
+            for mode in self._sensor_modes:
+                width, height = mode["size"]
+                fps = mode.get("fps")
+                fps_text = f" @ {float(fps):.2f} fps" if fps else ""
+                depth = mode.get("bit_depth")
+                depth_text = f" • {depth}-bit" if depth else ""
+                crop = mode.get("crop_limits")
+                crop_text = f" • crop {crop}" if crop else ""
+                suffix = " • MAX" if mode is maximum else ""
+                mode_lines.append(
+                    f"{width}x{height}{fps_text}{depth_text}{crop_text}{suffix}"
+                )
+            capabilities.append(CameraCapability(
+                id="sensor_modes",
+                name="Detected Sensor Modes",
+                type="text",
+                readable=True,
+                writable=False,
+                value=" | ".join(mode_lines),
+                metadata={"section": "Sensor", "modes": self._sensor_modes},
+            ))
 
         capabilities.append(
             CameraCapability(

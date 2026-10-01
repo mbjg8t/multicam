@@ -118,3 +118,40 @@ def test_broker_reconfigures_only_the_selected_camera():
 
     assert camera.resolution == "1280x960"
     broker.stop(camera.id)
+
+
+def test_picamera_sensor_modes_are_reported_from_libcamera():
+    device = object.__new__(Picamera2Device)
+    device._camera = SimpleNamespace(
+        camera_controls={},
+        sensor_modes=[
+            {"size": (1920, 1080), "fps": 70.56, "bit_depth": 10,
+             "format": "SRGGB10", "crop_limits": (0, 0, 9248, 6944)},
+            {"size": (9248, 6944), "fps": 2.60, "bit_depth": 10,
+             "format": "SRGGB10", "crop_limits": (0, 0, 9248, 6944)},
+        ],
+    )
+    device._sensor_modes = device._read_sensor_modes()
+    device._preview_size = (1920, 1080)
+    device._preview_sizes = [m["size"] for m in device._sensor_modes]
+
+    capability = next(
+        item for item in device.get_capabilities()
+        if item.id == "sensor_modes"
+    )
+
+    assert "1920x1080 @ 70.56 fps" in capability.value
+    assert "9248x6944 @ 2.60 fps" in capability.value
+    assert "MAX" in capability.value
+    assert capability.metadata["section"] == "Sensor"
+
+
+def test_picamera_maximum_mode_uses_largest_sensor_area():
+    device = object.__new__(Picamera2Device)
+    device._sensor_modes = [
+        {"size": (4624, 3472), "bit_depth": 10},
+        {"size": (9248, 6944), "bit_depth": 10},
+        {"size": (8000, 6000), "bit_depth": 10},
+    ]
+
+    assert device._maximum_sensor_mode()["size"] == (9248, 6944)

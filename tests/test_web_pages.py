@@ -8,7 +8,7 @@ def test_main_page_renders_from_template():
 
     assert response.status_code == 200
     assert b"Multicam" in response.data
-    assert b'<img src="/stream">' in response.data
+    assert b'id="live-image"' in response.data
     assert b'id="camera-strip"' in response.data
     assert b'Align to' in response.data
     assert b'id="open-focus"' in response.data
@@ -136,7 +136,9 @@ def test_mtf_workbench_page_is_available():
     response = app.test_client().get("/mtf")
     assert response.status_code == 200
     assert b"MTF Workbench" in response.data
-    assert b"USAF / tri-bar modulation" in response.data
+    assert b"USAF tri-bar" in response.data
+    assert b"SBIR multi-target auto" in response.data
+    assert b"Slanted edge" in response.data
 
 
 def test_camera_hardware_selector_is_stable_and_auto_plans():
