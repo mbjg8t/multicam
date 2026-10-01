@@ -155,3 +155,19 @@ def test_picamera_maximum_mode_uses_largest_sensor_area():
     ]
 
     assert device._maximum_sensor_mode()["size"] == (9248, 6944)
+
+
+def test_picamera_large_sensor_modes_are_still_only_for_live_safety():
+    device = object.__new__(Picamera2Device)
+    device._sensor_modes = [
+        {"size": (1920, 1080)},
+        {"size": (2312, 1736)},
+        {"size": (3840, 2160)},
+        {"size": (4624, 3472)},
+        {"size": (8000, 6000)},
+        {"size": (9248, 6944)},
+    ]
+
+    assert device._safe_preview_sizes_from_sensor_modes() == [
+        (1920, 1080), (2312, 1736), (3840, 2160)
+    ]

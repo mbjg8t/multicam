@@ -44,9 +44,12 @@ class Picamera2Device(CameraDevice):
         self._io_lock = RLock()
 
         self._sensor_modes = self._read_sensor_modes()
-        self._preview_sizes = list(dict.fromkeys(
-            mode["size"] for mode in self._sensor_modes
-        ))
+        # Sensor modes are not automatically safe continuous RGB preview
+        # modes. Large OV64 modes can exhaust RAM/CMA on a 4 GB Pi once
+        # Picamera2, NumPy, the compositor and JPEG buffers are combined.
+        # Keep every detected mode visible as sensor/still capability, while
+        # exposing only bounded modes for continuous live acquisition.
+        self._preview_sizes = self._safe_preview_sizes_from_sensor_modes()
         if not self._preview_sizes:
             self._preview_sizes = self._supported_preview_sizes()
         preferred = (1920, 1080)
@@ -80,6 +83,22 @@ class Picamera2Device(CameraDevice):
                 "crop_limits": tuple(raw.get("crop_limits") or ()),
             })
         return normalized
+
+
+    def _safe_preview_sizes_from_sensor_modes(self):
+        """Return sensor modes safe for continuous RGB888 live view.
+
+        Full-resolution modes remain available through sensor_modes and the
+        high-quality still path.  The bound intentionally protects 4 GB Pi
+        systems from multi-buffer 48/64 MP RGB allocations.
+        """
+        max_pixels = 3840 * 2160
+        sizes = []
+        for mode in self._sensor_modes:
+            size = tuple(mode["size"])
+            if size[0] * size[1] <= max_pixels and size not in sizes:
+                sizes.append(size)
+        return sizes
 
     def _maximum_sensor_mode(self):
         modes = self._sensor_modes or self._read_sensor_modes()
@@ -345,7 +364,12 @@ class Picamera2Device(CameraDevice):
                 readable=True,
                 writable=False,
                 value=" | ".join(mode_lines),
-                metadata={"section": "Sensor", "modes": self._sensor_modes},
+                metadata={
+                    "section": "Sensor",
+                    "modes": self._sensor_modes,
+                    "usage": "still_capture",
+                    "maximum_still_size": maximum["size"] if maximum else None,
+                },
             ))
 
         capabilities.append(
@@ -364,6 +388,10 @@ class Picamera2Device(CameraDevice):
                     "requires_stream_restart": True,
                     "profile_safe": True,
                     "purpose": "preview_output",
+                    "safety_note": (
+                        "Large sensor modes are still-capture only to prevent "
+                        "live-view memory exhaustion."
+                    ),
                 },
             )
         )

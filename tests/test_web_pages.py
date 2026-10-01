@@ -182,3 +182,10 @@ def test_alignment_script_includes_auto_match_workflow():
     assert b"model outlier" in response.data
     assert b"last valid preview remains displayed" in response.data
     assert b"Undo becomes available after an alignment is accepted" in response.data
+
+
+def test_live_page_has_capture_control():
+    response = app.test_client().get("/")
+    assert response.status_code == 200
+    assert b'id="capture-live"' in response.data
+    assert b'id="camera-strip"' in response.data

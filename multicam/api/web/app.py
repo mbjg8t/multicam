@@ -1029,6 +1029,26 @@ def remove_layer_api(camera_id):
     return jsonify(serialize_state())
 
 
+@app.route("/api/live/capture")
+def live_capture_api():
+    """Download the current live composite as a JPEG without freezing it."""
+    image = service.get_composite()
+    if image is None:
+        return jsonify({"error": "No live composite is available"}), 404
+
+    buffer = io.BytesIO()
+    Image.fromarray(image).save(buffer, format="JPEG", quality=94)
+    filename = time.strftime("multicam-%Y%m%d-%H%M%S.jpg")
+    return Response(
+        buffer.getvalue(),
+        mimetype="image/jpeg",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
 @app.route("/stream")
 def stream():
     def generate():

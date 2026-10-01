@@ -97,6 +97,7 @@ document.getElementById('open-dsp').addEventListener('click', () => {
 const viewer = document.getElementById('viewer');
 const liveImage = document.getElementById('live-image');
 const frozenImage = document.getElementById('frozen-image');
+const captureLive = document.getElementById('capture-live');
 const freezeLive = document.getElementById('freeze-live');
 const zoomLabel = document.getElementById('zoom-label');
 const MIN_ZOOM = 1;
@@ -176,6 +177,31 @@ viewer.addEventListener('pointerup', endDrag);
 viewer.addEventListener('pointercancel', endDrag);
 viewer.addEventListener('dblclick', event => {
     if (!event.target.closest('.zoom-controls')) resetZoom();
+});
+
+captureLive.addEventListener('click', async () => {
+    captureLive.disabled = true;
+    try {
+        const response = await fetch('/api/live/capture');
+        if (!response.ok) {
+            throw new Error(`Capture failed: ${response.status}`);
+        }
+        const blob = await response.blob();
+        const disposition = response.headers.get('Content-Disposition') || '';
+        const match = disposition.match(/filename="?([^";]+)"?/i);
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = match ? match[1] : 'multicam-capture.jpg';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(link.href);
+    } catch (error) {
+        console.error(error);
+        window.alert('Unable to save live capture.');
+    } finally {
+        captureLive.disabled = false;
+    }
 });
 
 freezeLive.addEventListener('click', () => {

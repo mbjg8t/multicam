@@ -10,6 +10,7 @@
     <div class="container">
         <div class="header">
             <div class="title">Multicam 1.0</div>
+            <div id="camera-strip" class="camera-strip"></div>
 
             <nav class="tool-buttons" aria-label="Multicam tools">
                 <button onclick="window.open('/cameras', 'multicam-cameras')">Cameras</button>
@@ -20,12 +21,11 @@
             </nav>
         </div>
 
-        <div id="camera-strip" class="camera-strip"></div>
-
         <div id="viewer" class="viewer">
             <img id="live-image" src="/stream" draggable="false">
             <canvas id="frozen-image" aria-label="Frozen live frame"></canvas>
             <div class="zoom-controls" aria-label="Live view zoom controls">
+                <button id="capture-live" title="Save the current live composite as JPEG">Capture</button>
                 <button id="freeze-live" title="Freeze the displayed live frame">Freeze</button>
                 <button id="zoom-out" title="Zoom out">−</button>
                 <span id="zoom-label">100%</span>

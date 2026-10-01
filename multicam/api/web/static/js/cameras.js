@@ -1156,8 +1156,10 @@ function previewResolutionSection(cameraId, capability) {
             </div>
 
             <div class="camera-info">
-                Restarts only this camera stream. It clears active alignment
-                because frame geometry changes.
+                Restarts only this camera stream. Only memory-safe live modes
+                are listed here; larger detected sensor modes remain available
+                for high-resolution still capture. Changing geometry clears
+                active alignment.
             </div>
 
             <div class="orientation-controls">
