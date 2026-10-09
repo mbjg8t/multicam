@@ -16,7 +16,7 @@ class FakeBackend:
 
 def test_unavailable_backend_does_not_block_others(monkeypatch):
     def fake_import(module_name):
-        if module_name.endswith(".aravis"):
+        if module_name.endswith((".aravis", ".analog", ".boson")):
             raise ImportError("Aravis is not installed")
 
         return SimpleNamespace(Picamera2Backend=FakeBackend)

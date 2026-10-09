@@ -18,6 +18,7 @@ BUILTIN_BACKENDS = (
     ("picamera2", "multicam.backends.picamera2", "Picamera2Backend"),
     ("aravis", "multicam.backends.aravis", "AravisBackend"),
     ("boson", "multicam.backends.boson", "BosonBackend"),
+    ("analog", "multicam.backends.analog", "AnalogBackend"),
 )
 
 

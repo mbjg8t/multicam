@@ -10,7 +10,7 @@ def test_main_page_renders_from_template():
     assert b"Multicam" in response.data
     assert b'id="live-image"' in response.data
     assert b'id="camera-strip"' in response.data
-    assert b'Align to' in response.data
+    assert b'id="open-alignment"' in response.data
     assert b'id="open-focus"' in response.data
     assert b'id="open-dsp"' in response.data
 
