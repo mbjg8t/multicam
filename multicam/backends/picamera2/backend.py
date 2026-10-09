@@ -580,7 +580,12 @@ class Picamera2Backend(CameraBackend):
             # interprets the Boson's packed Y16 stream as a 1280-pixel-wide
             # image. Leave these devices exclusively to the Boson backend.
             model_text = str(model or "").lower()
-            if "boson" in model_text or "flir" in model_text:
+            # libcamera enumerates USB UVC devices as well as CSI sensors.
+            # Picamera2 must never claim UVC: those belong to USB backends.
+            path_text = str(camera_path or "").lower()
+            if ("boson" in model_text or "flir" in model_text
+                    or "uvc" in path_text or "/usb@" in path_text
+                    or "usb video" in model_text):
                 continue
 
             persistent_part = (
