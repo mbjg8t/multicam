@@ -65,6 +65,13 @@ SENSOR_DEFINITIONS = (
         focus_type="autofocus",
     ),
     RaspberryPiSensorDefinition(
+        id="imx708",
+        name="IMX708 / Arducam 12 MP",
+        model="imx708",
+        overlay="imx708",
+        focus_type="autofocus",
+    ),
+    RaspberryPiSensorDefinition(
         id="ov64a40",
         name="OV64A40 / Arducam 64 MP",
         model="ov64a40",

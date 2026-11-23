@@ -435,6 +435,7 @@ function renderLayers() {
     container.innerHTML = '';
 
     if (viewState.layers.length === 0) {
+        syncLayerInspectors([]);
         container.innerHTML =
             '<div class="empty">No camera layers</div>';
         return;
@@ -511,7 +512,7 @@ function renderLayers() {
                 <button onclick="toggleCameraSettings(
                     '${escapeJs(layer.camera_id)}'
                 )">
-                    Settings
+                    Layer ${index + 1} settings
                 </button>
 
                 <button onclick="removeLayer(
@@ -521,45 +522,56 @@ function renderLayers() {
                 </button>
             </div>
 
-            <div
-                class="camera-settings ${
-                    openCameraSettings.has(layer.camera_id)
-                        ? 'open'
-                        : ''
-                }"
-                id="settings-${encodeURIComponent(layer.camera_id)}"
-            >
-                <div class="settings-message">
-                    ${
-                        openCameraSettings.has(layer.camera_id)
-                            ? 'Loading camera settings...'
-                            : ''
-                    }
-                </div>
-            </div>
         `;
 
         container.appendChild(div);
+    });
+    syncLayerInspectors(layers);
+}
 
-        if (openCameraSettings.has(layer.camera_id)) {
-            loadCameraSettings(layer.camera_id).catch(error => {
-                console.error(error);
-                showStatus('Unable to load camera settings');
-            });
+
+function syncLayerInspectors(layers) {
+    const dock = document.getElementById('layerInspectors');
+    for (const panel of Array.from(dock.children)) {
+        if (!layers.some(layer => layer.camera_id === panel.dataset.cameraId)) {
+            openCameraSettings.delete(panel.dataset.cameraId);
+            panel.remove();
         }
+    }
+
+    layers.forEach((layer, index) => {
+        const id = layer.camera_id;
+        if (!openCameraSettings.has(id)) return;
+        let panel = document.getElementById('inspector-' + encodeURIComponent(id));
+        if (!panel) {
+            panel = document.createElement('details');
+            panel.id = 'inspector-' + encodeURIComponent(id);
+            panel.dataset.cameraId = id;
+            panel.open = true;
+            const summary = document.createElement('summary');
+            const body = document.createElement('div');
+            body.className = 'camera-settings open';
+            body.id = 'settings-' + encodeURIComponent(id);
+            body.textContent = 'Loading camera settings…';
+            panel.append(summary, body);
+            dock.appendChild(panel);
+            loadCameraSettings(id);
+        }
+        panel.style.order = index;
+        panel.firstElementChild.textContent =
+            'Layer ' + (index + 1) + ' · ' + (cameraById(id)?.model || id) + ' settings';
     });
 }
 
 
-async function toggleCameraSettings(cameraId) {
-    if (openCameraSettings.has(cameraId)) {
-        openCameraSettings.delete(cameraId);
-        renderLayers();
+function toggleCameraSettings(cameraId) {
+    const panel = document.getElementById('inspector-' + encodeURIComponent(cameraId));
+    if (panel) {
+        panel.open = !panel.open;
         return;
     }
-
     openCameraSettings.add(cameraId);
-    renderLayers();
+    syncLayerInspectors([...viewState.layers].sort((a, b) => a.z_order - b.z_order));
 }
 
 
@@ -1405,6 +1417,15 @@ async function loadCameraSettings(cameraId) {
             profiles
         );
 
+        const resetControls = supported.filter(control =>
+            control.writable &&
+            ['boolean', 'integer', 'float', 'choice'].includes(control.type) &&
+            cameraControlDefault(control) !== null
+        );
+        html += `<button type="button" class="camera-reset-defaults"
+            ${resetControls.length ? '' : 'disabled title="No camera defaults available"'}>
+            Reset camera defaults</button>`;
+
         html += cameraOrientationSection(
             cameraId,
             orientationData.orientation
@@ -1480,6 +1501,29 @@ async function loadCameraSettings(cameraId) {
         }
 
         currentPanel.innerHTML = html;
+        const resetButton = currentPanel.querySelector('.camera-reset-defaults');
+        resetButton.onclick = async () => {
+            resetButton.disabled = true;
+            const failed = [];
+            // Manual exposure, gain and lens writes can disable automatic modes.
+            const modeControls = ['focus_mode', 'auto_white_balance', 'auto_exposure'];
+            const ordered = [...resetControls].sort((a, b) =>
+                modeControls.indexOf(a.id) - modeControls.indexOf(b.id)
+            );
+            for (const control of ordered) {
+                try {
+                    await setCameraControlValue(cameraId, control.id, cameraControlDefault(control));
+                } catch (error) {
+                    failed.push(control.name);
+                    console.error(error);
+                }
+            }
+            await loadCameraSettings(cameraId);
+            showStatus(failed.length
+                ? 'Could not reset: ' + failed.join(', ')
+                : 'Camera defaults restored');
+        };
+
 
     } catch (error) {
         panel.innerHTML =

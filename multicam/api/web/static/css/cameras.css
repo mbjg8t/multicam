@@ -351,3 +351,35 @@ button:disabled {
     color: #aaa;
     padding: 10px 0;
 }
+
+#layerInspectors {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 32rem), 1fr));
+    gap: 10px;
+    align-items: start;
+}
+#layerInspectors details {
+    min-width: 0;
+    border: 1px solid #555;
+    border-radius: 5px;
+    background: #222;
+}
+#layerInspectors summary {
+    padding: 10px;
+    cursor: pointer;
+    font-weight: bold;
+}
+#layerInspectors .camera-settings {
+    max-height: 52vh;
+    overflow: auto;
+    padding: 10px;
+    margin: 0;
+}
+#layerInspectors .control-row {
+    grid-template-columns: minmax(6rem, 1fr) minmax(3rem, 1.5fr) 6rem 32px;
+}
+#layerInspectors .control-row.readonly {
+    grid-template-columns: minmax(6rem, 1fr) 2fr;
+}
+#layerInspectors .control-name { white-space: normal; }
+#layerInspectors .control-slider { min-width: 0; }
