@@ -4,6 +4,8 @@ import logging
 import io
 import os
 import socket
+import subprocess
+from pathlib import Path
 import time
 import atexit
 
@@ -319,7 +321,30 @@ def index():
 
 @app.route("/cameras")
 def cameras_page():
-    return render_template("cameras.html")
+    return render_template("cameras.html", can_shutdown=is_raspberry_pi())
+
+
+def is_raspberry_pi():
+    try:
+        return b"Raspberry Pi" in Path("/proc/device-tree/model").read_bytes()
+    except OSError:
+        return False
+
+
+@app.post("/api/hardware/poweroff")
+def poweroff_pi():
+    if not is_raspberry_pi():
+        return jsonify(error="Shutdown is available only on Raspberry Pi."), 400
+    if not request.is_json or request.get_json(silent=True) != {"confirm": "poweroff"}:
+        return jsonify(error="Shutdown confirmation required."), 400
+    try:
+        subprocess.run(["sudo", "-n", "/usr/bin/systemctl", "--no-block", "poweroff"],
+                       check=True, capture_output=True, timeout=5)
+    except subprocess.CalledProcessError:
+        return jsonify(error="Power-off denied or unavailable. Check the Multicam user's sudo permission for systemctl --no-block poweroff."), 503
+    except (OSError, subprocess.TimeoutExpired):
+        return jsonify(error="Could not confirm power-off. Check the Pi before disconnecting power."), 503
+    return jsonify(accepted=True), 202
 
 
 @app.route("/api/cameras")

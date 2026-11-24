@@ -23,6 +23,28 @@ async function api(url, options = {}) {
 }
 
 
+async function powerOffPi() {
+    if (!window.confirm("Shut down the Pi now? Apply any desired overlay changes first.")) return;
+    const button = document.getElementById('poweroffButton');
+    const status = document.getElementById('poweroffStatus');
+    button.disabled = true;
+    status.textContent = 'Requesting shutdown…';
+    try {
+        const response = await fetch('/api/hardware/poweroff', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({confirm: 'poweroff'})
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Shutdown request failed.');
+        status.textContent = 'Shutdown requested. Wait for the Pi to halt, then disconnect power before swapping the camera.';
+    } catch (error) {
+        status.textContent = 'Shutdown unconfirmed. Check the Pi. ' + error.message;
+        button.disabled = false;
+    }
+}
+
+
 async function refresh() {
     [cameras, streams, viewState, hardwareState] = await Promise.all([
         api('/api/cameras'),

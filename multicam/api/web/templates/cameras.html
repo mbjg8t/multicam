@@ -43,6 +43,10 @@
                 Apply Selected Overlays
             </button>
         </div>
+        {% if can_shutdown %}
+        <button id="poweroffButton" onclick="powerOffPi()">Shut down Pi for camera swap</button>
+        <div id="poweroffStatus" role="status"></div>
+        {% endif %}
         <div id="hardwareProposed" class="camera-info"></div>
         <div id="hardwareApplyResult" class="camera-info"></div>
     </div>
